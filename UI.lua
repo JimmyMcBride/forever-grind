@@ -64,6 +64,8 @@ local function Panel(name, title, width, height)
     return panel
 end
 
+UI.Widgets = { Text = Text, Button = Button, Edit = Edit }
+
 function UI.ApplyPosition()
     local settings = FG.db.settings
     UI.strip:SetScale(settings.scale)
@@ -104,10 +106,20 @@ function UI.Tooltip(owner)
     GameTooltip:Show()
 end
 
+function UI.ShowList()
+    UI.reportVisible = false
+    UI.report.frame:Hide()
+    UI.listFrame:Show()
+end
+
 function UI.Select(record)
+    local changed = UI.selected ~= record
     UI.selected = record
-    UI.nameEdit:SetText(record and (record.name or FG.LocationText(record.startLocation)) or "")
-    UI.notesEdit:SetText(record and (record.notes or "") or "")
+    if not record then UI.ShowList(); return end
+    UI.reportVisible = true
+    UI.listFrame:Hide()
+    UI.report.frame:Show()
+    if changed then UI.report:Select(record) end
 end
 
 function UI.Filter(record, filters)
@@ -123,43 +135,15 @@ function UI.Filter(record, filters)
     return true
 end
 
-local function Details(record)
-    if not record then return "Select a session to inspect its totals and items." end
-    local t = FG.Totals(record)
-    local lines = { record.name or "Current session", record.character .. " — " .. record.realm,
-        "Levels " .. record.levelStart .. " → " .. record.levelEnd,
-        "Started: " .. date("%Y-%m-%d %H:%M", record.startedAt),
-        record.endedAt and ("Ended: " .. date("%Y-%m-%d %H:%M", record.endedAt)) or ("Status: " .. FG.character.mode),
-        "Start: " .. FG.LocationText(record.startLocation),
-        "Stop/save: " .. (record.endLocation and FG.LocationText(record.endLocation) or "Not stopped"),
-        "Active: " .. FG.Duration(record.active) .. " / paused: " .. FG.Duration(record.paused + (record.pauseEpoch and math.max(0, time() - record.pauseEpoch) or 0)),
-        string.format("XP %d (%s/h)", t.xp, FG.Short(t.xpHour)),
-        string.format("Combat %d / quests %d / other %d", record.xp.combat, record.xp.quest, record.xp.other),
-        "Looted coin: " .. FG.Money(record.coin.loot), "Quest gold: " .. FG.Money(record.coin.quest),
-        "Vendor all items: " .. FG.Money(t.baseline), "Vendor route: " .. FG.Money(t.vendor),
-        "Estimated AH proceeds: " .. FG.Money(t.ah), "Projected total: " .. FG.Money(t.projected),
-        "Estimated value/h: " .. FG.Money(t.goldHour), "Vendor baseline/h (with coin): " .. FG.Money(t.vendorHour),
-        "Item quantities: " .. t.quantity .. " / awaiting data: " .. t.pending }
-    local pricing = record.pricing or FG.db.settings
-    lines[#lines + 1] = string.format("AH cut %.1f%% / max quote age %.1f days / integration %s", pricing.ahCut, pricing.maxPriceAge, pricing.auctionator and "on" or "off")
-    lines[#lines + 1] = record.closed and "Quotes frozen at stop; missing metadata may still resolve." or "Unfinished estimates refresh with Auctionator data."
-    lines[#lines + 1] = "\nActive time by zone:"
-    for _, zone in pairs(record.zones) do lines[#lines + 1] = (zone.zone or "Unknown") .. ": " .. FG.Duration(zone.seconds) end
-    for _, warning in pairs(record.warnings) do lines[#lines + 1] = warning end
-    lines[#lines + 1] = "\nItems — greatest AH advantage first:"
-    for _, row in ipairs(t.rows) do
-        local e, value, quote = row.entry, row.value, row.quote
-        lines[#lines + 1] = string.format("\n[%s] %s x%d (%s)", value.route, e.displayLink or e.link, e.quantity, e.source)
-        lines[#lines + 1] = "Vendor " .. (value.vendor and FG.Money(value.vendor) or "pending") .. " / AH " .. FG.Money(value.ah or 0)
-        lines[#lines + 1] = value.reason
-        if quote then lines[#lines + 1] = "Quote/unit " .. FG.Money(quote.price) .. " / age " .. tostring(quote.age or "unknown") .. "d / advantage " .. FG.Money(value.upside or 0) end
-    end
-    return table.concat(lines, "\n")
-end
-
 function UI.RefreshJournal()
     if not UI.journal:IsShown() then return end
     UI.dirty = false
+    if UI.selected then
+        local exists = false
+        for _, record in ipairs(FG.model:Records()) do if record == UI.selected then exists = true end end
+        if not exists then UI.Select(nil) end
+    end
+    if UI.reportVisible and UI.selected then UI.report:Refresh(); return end
     local list = UI.tab == "saved" and FG.db.saved or FG.db.temporary
     if UI.tab == "current" then list = FG.character.current and { FG.character.current } or {} end
     local filters = {}
@@ -192,30 +176,26 @@ function UI.RefreshJournal()
             row.active:SetText(FG.Duration(record.active))
         end
     end
-    if UI.selected then
-        local exists = UI.selected == FG.character.current
-        for _, record in ipairs(FG.model:Records()) do if record == UI.selected then exists = true end end
-        if not exists then UI.Select(nil) end
-    end
-    UI.detailText:SetText(Details(UI.selected))
-    UI.detailContent:SetHeight(math.max(400, UI.detailText:GetStringHeight() + 20))
-    UI.promote:SetEnabled(UI.selected ~= nil and UI.selected.closed and UI.tab == "temporary")
-    UI.delete:SetEnabled(UI.selected ~= nil and UI.selected.closed == true)
-    UI.applyName:SetEnabled(UI.selected ~= nil)
+    UI.emptyList:SetShown(#records == 0)
 end
 
 function UI.OpenJournal()
-    UI.tab = FG.character.current and "current" or "saved"
-    UI.page = 1
-    UI.Select(FG.character.current)
+    if not UI.opened then
+        UI.opened = true
+        UI.tab = FG.character.current and "current" or "saved"
+        UI.Select(FG.character.current)
+    end
     UI.journal:SetScale(math.min(1, (UIParent:GetWidth() - 32) / 940, (UIParent:GetHeight() - 32) / 600))
     UI.journal:Show()
     UI.RefreshJournal()
 end
 
 local function CreateJournal()
-    local panel = Panel("ForeverGrindJournal", "Forever Grind — Session Journal", 940, 600)
-    UI.journal, UI.filters, UI.rows = panel, {}, {}
+    UI.journal = Panel("ForeverGrindJournal", "Forever Grind — Session Journal", 940, 600)
+    local panel = CreateFrame("Frame", nil, UI.journal)
+    panel:SetSize(940, 600)
+    panel:SetPoint("TOPLEFT")
+    UI.listFrame, UI.filters, UI.rows = panel, {}, {}
     for index, tab in ipairs({ "saved", "temporary", "current" }) do
         local selected = tab
         Button(panel, tab == "temporary" and "Unsaved (20)" or tab:gsub("^%l", string.upper), 18 + (index - 1) * 110, -42, 104,
@@ -227,8 +207,8 @@ local function CreateJournal()
     UI.filters.minimum = Edit(panel, 270, -78, 45, "Min level", filterChanged)
     UI.filters.maximum = Edit(panel, 330, -78, 45, "Max level", filterChanged)
     UI.filters.location = Edit(panel, 395, -78, 240, "Location / name", filterChanged)
-    Text(panel, "Location / session", 20, -130, 245)
-    for _, sort in ipairs({ { "XP/h", "xpHour", 285 }, { "Est g/h", "goldHour", 370 }, { "Vendor g/h", "vendorHour", 458 }, { "Active", "active", 548 } }) do
+    Text(panel, "Location / session", 20, -130, 420)
+    for _, sort in ipairs({ { "XP/h", "xpHour", 470 }, { "Est g/h", "goldHour", 580 }, { "Vendor g/h", "vendorHour", 690 }, { "Active", "active", 800 } }) do
         local key = sort[2]
         Button(panel, sort[1], sort[3], -123, 82, function()
             if UI.sort == key then UI.descending = not UI.descending else UI.sort, UI.descending = key, true end
@@ -237,17 +217,19 @@ local function CreateJournal()
     end
     for index = 1, 10 do
         local row = CreateFrame("Button", nil, panel)
-        row:SetSize(620, 35)
+        row:SetSize(890, 35)
         row:SetPoint("TOPLEFT", 20, -151 - (index - 1) * 36)
         row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
-        row.title = Text(row, "", 0, 0, 255)
+        row.title = Text(row, "", 0, 0, 430)
         row.title:SetWordWrap(false)
-        row.subtitle = Text(row, "", 0, -17, 255, 9)
+        row.subtitle = Text(row, "", 0, -17, 430, 10)
         row.subtitle:SetWordWrap(false)
-        row.xp = Text(row, "", 270, 0, 78)
-        row.gold = Text(row, "", 355, 0, 80)
-        row.vendor = Text(row, "", 443, 0, 80)
-        row.active = Text(row, "", 530, 0, 85)
+        row.xp = Text(row, "", 455, 0, 100)
+        row.xp:SetTextColor(0.4, 0.75, 1)
+        row.gold = Text(row, "", 565, 0, 100)
+        row.gold:SetTextColor(1, 0.8, 0.25)
+        row.vendor = Text(row, "", 675, 0, 100)
+        row.active = Text(row, "", 785, 0, 100)
         row:SetScript("OnClick", function() UI.Select(row.record); UI.RefreshJournal() end)
         UI.rows[index] = row
     end
@@ -255,39 +237,9 @@ local function CreateJournal()
     Button(panel, ">", 55, -520, 30, function() UI.page = UI.page + 1; UI.RefreshJournal() end)
     UI.pageText = Text(panel, "", 96, -525, 520)
     Text(panel, "Unsaved logs survive logout; oldest is removed when a 21st is added.", 20, -558, 615, 10)
-    Text(panel, "Session details / item recommendations", 662, -46, 255)
-    local scroll = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", 660, -70)
-    scroll:SetPoint("BOTTOMRIGHT", -32, 156)
-    UI.detailContent = CreateFrame("Frame", nil, scroll)
-    UI.detailContent:SetSize(240, 400)
-    scroll:SetScrollChild(UI.detailContent)
-    UI.detailText = Text(UI.detailContent, "", 0, 0, 240, 11)
-    UI.nameEdit = Edit(panel, 660, -460, 242, "Session name")
-    UI.notesEdit = Edit(panel, 660, -502, 242, "Notes")
-    UI.applyName = Button(panel, "Apply name / notes", 662, -552, 145, function()
-        if UI.selected then
-            local name = UI.nameEdit:GetText():match("^%s*(.-)%s*$")
-            UI.selected.name = name ~= "" and name or FG.LocationText(UI.selected.endLocation or UI.selected.startLocation)
-            UI.selected.notes = UI.notesEdit:GetText()
-            UI.RefreshJournal()
-        end
-    end)
-    UI.promote = Button(panel, "Keep", 812, -552, 44, function()
-        if UI.selected then FG.model:Promote(UI.selected.id); UI.tab = "saved"; UI.RefreshJournal() end
-    end, "Keep selected temporary session permanently, preserving its original stop location and estimates.")
-    StaticPopupDialogs.FOREVER_GRIND_DELETE = {
-        text = "Delete this session permanently?", button1 = YES, button2 = NO, timeout = 0, whileDead = true, hideOnEscape = true,
-        OnAccept = function(_, record)
-            for _, list in ipairs({ FG.db.saved, FG.db.temporary }) do
-                for index, candidate in ipairs(list) do if candidate.id == record.id then table.remove(list, index); break end end
-            end
-            UI.Select(nil); UI.RefreshJournal()
-        end,
-    }
-    UI.delete = Button(panel, "Delete", 861, -552, 50, function()
-        if UI.selected then StaticPopup_Show("FOREVER_GRIND_DELETE", nil, nil, UI.selected) end
-    end)
+    UI.emptyList = Text(panel, "No sessions match these filters. Select Current for an unfinished session, or record a new run.", 20, -190, 880, 13)
+    UI.report = FG.Report.Create(UI)
+    UI.report.frame:Hide()
 end
 
 local function CreateSettings()
@@ -344,7 +296,7 @@ function UI.Refresh()
     UI.save:SetEnabled(record ~= nil)
     UI.stop:SetEnabled(record ~= nil or mode == "armed")
     UI.settingsStatus:SetText((Auctionator and Auctionator.API and "Auctionator API available." or "Auctionator not available: vendor estimates only.") .. "\n" .. (FG.XPBar.status or "Waiting for Blizzard XP bar."))
-    if UI.dirty or UI.tab == "current" then UI.RefreshJournal() end
+    if UI.dirty or UI.tab == "current" or UI.reportVisible then UI.RefreshJournal() end
 end
 
 function UI.Create()

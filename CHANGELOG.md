@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2 — 2026-11-20
+
+- Replace the narrow journal details panel with full-width Overview, Loot, and Session details reports, keeping XP/hour, estimated gold/hour, active time, and total XP visible.
+- Align earnings and XP breakdowns; separate the vendor-only comparison and data notices. Add selectable loot rows, recommendation details, wrapped notes, and zones sorted by active time.
+- Preserve list navigation, report scrolling, selected items, and unfinished edits during updates. Keep promotion/deletion and frozen pricing behavior without changing saved data.
+
 ## 0.1.1 — 2026-11-20
 
 - Replace completed-quest/projection bar text with a running-session time-to-level estimate based on XP remaining and active XP rate.

@@ -19,7 +19,7 @@ end
 
 function H.pure()
     local FG = {}
-    for _, name in ipairs({ "Util", "Session", "Valuation", "Parsing", "Collector", "XPBar", "UI" }) do H.load(FG, name .. ".lua") end
+    for _, name in ipairs({ "Util", "Session", "Valuation", "Parsing", "Collector", "XPBar", "UI", "Report" }) do H.load(FG, name .. ".lua") end
     return FG
 end
 
@@ -102,6 +102,8 @@ function H.native(options)
     function F:IsShown() return self.shown end
     function F:IsVisible() return self.shown and (not self.parent or self.parent:IsVisible()) end
     function F:SetScrollChild(child) self.child = child end
+    function F:SetVerticalScroll(value) self.scrollOffset = value end
+    function F:GetVerticalScroll() return self.scrollOffset or 0 end
     function F:SetChecked(value) self.checked = value end
     function F:GetChecked() return self.checked end
     function F:SetEnabled(value) self.enabled = value end
@@ -111,8 +113,9 @@ function H.native(options)
     function F:GetFont() return "font", 11, "OUTLINE" end
     function F:SetOwner(owner) self.owner = owner; self.lines = {} end
     function F:AddLine(text) self.lines = self.lines or {}; self.lines[#self.lines + 1] = text end
+    function F:SetHyperlink(link) self.link = link end
     for _, method in ipairs({ "SetJustifyH", "SetFont", "SetFrameStrata", "SetClampedToScreen", "SetMovable", "EnableMouse", "RegisterForDrag",
-        "SetBackdrop", "SetBackdropColor", "SetAutoFocus", "ClearFocus", "StartMoving", "StopMovingOrSizing", "SetScale", "SetWordWrap", "SetHighlightTexture" }) do
+        "SetBackdrop", "SetBackdropColor", "SetAutoFocus", "ClearFocus", "StartMoving", "StopMovingOrSizing", "SetScale", "SetWordWrap", "SetHighlightTexture", "SetJustifyV" }) do
         F[method] = function() end
     end
     function env.CreateFrame(kind, name, parent, template)
@@ -199,7 +202,7 @@ function H.native(options)
             RegisterForDBUpdate = function(_, callback) w.priceUpdate = callback end,
         } } }
     end
-    for _, name in ipairs({ "Util", "Session", "Valuation", "Parsing", "Collector", "XPBar", "UI", "Core" }) do H.load(FG, name .. ".lua", env) end
+    for _, name in ipairs({ "Util", "Session", "Valuation", "Parsing", "Collector", "XPBar", "UI", "Report", "Core" }) do H.load(FG, name .. ".lua", env) end
     function w:emit(event, ...)
         for _, frame in ipairs(self.frames) do
             if frame.events[event] and frame.scripts.OnEvent then frame.scripts.OnEvent(frame, event, ...) end

@@ -1,6 +1,6 @@
 local _, FG = ...
 FG.title = "Forever Grind"
-FG.version = "0.1.1"
+FG.version = "0.1.2"
 
 function FG.Copy(value)
     if type(value) ~= "table" then return value end

@@ -2,7 +2,7 @@
 
 Native XP-bar projections and a compact farming-session tracker for **WoW Forever 1.60.1.70959, interface 16001**. Original, dependency-free Lua 5.1 addon. Auctionator is optional. No dependency on Grinding Made Simple.
 
-Version **0.1.1 is a preview**. Automated and mocked integration checks pass; actual game behavior still needs the [in-game checklist](docs/IN_GAME_TESTING.md).
+Version **0.1.2 is a preview**. Automated and mocked integration checks pass; actual game behavior still needs the [in-game checklist](docs/IN_GAME_TESTING.md).
 
 ## Install
 
@@ -32,7 +32,13 @@ The strip has fixed columns for **XP/hour · estimated gold/hour · active time*
 
 Commands: `/fg play`, `/fg pause`, `/fg stop`, `/fg save`, `/fg settings`.
 
-The journal filters character, realm, starting/ending level range, and location. Click XP/hour, estimated gold/hour, vendor-baseline/hour, or active-time headings to sort. Select a record for its item ledger, source breakdown, pricing assumptions, level range, timestamps, active/paused duration, and time per visited zone. Names and notes are editable.
+The journal filters character, realm, starting/ending level range, and location. Click XP/hour, estimated gold/hour, vendor-baseline/hour, or active-time headings to sort. Selecting a session opens a full-width report with its name, character/realm, location, and status. Four headline figures stay visible: XP/hour, estimated gold/hour, active time, and total XP.
+
+- **Overview:** aligned XP sources, an additive earnings breakdown, a separate vendor-only comparison, and data-status warnings. The comparison baseline is an alternative to AH estimates, not extra income.
+- **Loot:** item rows show quantity, vendor/AH recommendation, estimated value, and AH advantage. Select a row for source, vendor value, quote age, and the recommendation reason. Hover an item for its native tooltip.
+- **Session details:** timestamps, levels, start/stop coordinates, active/paused time, wrapped notes, pricing assumptions, and visited zones sorted by active time.
+
+The report keeps name/notes editing, Keep, and confirmed Delete controls available. **Back to sessions** restores the same history tab, filters, sort order, and page. Live updates preserve scrolling and unfinished edits. Opening a different session resets to Overview and the top of the report.
 
 Start and stop/save locations include map ID, zone, subzone, and available coordinates. Missing coordinates say **unavailable**, never `(0, 0)`. Paused duration includes the offline pause; offline time never enters hourly rates.
 
@@ -66,9 +72,9 @@ python3 tools/check.py
 python3 tools/package.py
 ```
 
-The package is `dist/ForeverGrind-0.1.1.zip`, containing one `ForeverGrind/` directory. CI runs the same checks on pushes and pull requests. Tests exercise pure calculations and a mocked client; they do not prove live-client API timing, taint safety, locale behavior, or visual appearance.
+The package is `dist/ForeverGrind-0.1.2.zip`, containing one `ForeverGrind/` directory. CI runs the same checks on pushes and pull requests. Tests exercise pure calculations and a mocked client; they do not prove live-client API timing, taint safety, locale behavior, or visual appearance.
 
-Modules: `Session.lua` state machine; `Parsing.lua` localized notifications/XP deltas; `Collector.lua` single acquisition pipeline; `Valuation.lua` estimates; `Util.lua` storage/helpers; `XPBar.lua` native attachment; `UI.lua` strip/settings/journal; `Core.lua` client event/API bridge. Visible timers refresh twice per second. Inventory checks are acquisition/bag-event driven, not continuous scans.
+Modules: `Session.lua` state machine; `Parsing.lua` localized notifications/XP deltas; `Collector.lua` single acquisition pipeline; `Valuation.lua` estimates; `Util.lua` storage/helpers; `XPBar.lua` native attachment; `UI.lua` strip/settings/journal list; `Report.lua` structured session reports; `Core.lua` client event/API bridge. Visible timers refresh twice per second. Inventory checks are acquisition/bag-event driven, not continuous scans.
 
 Saved data: `ForeverGrindDB` contains versioned settings and shared history; `ForeverGrindCharacterDB` contains this character's unfinished session and armed/stopped state. Back up SavedVariables before testing previews. Future schema versions are rejected rather than silently downgraded.
 

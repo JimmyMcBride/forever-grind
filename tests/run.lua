@@ -262,7 +262,7 @@ test("native first kill, play/pause/stop/save controls and shared journal work",
     w.FG.Action("play"); w:advance(1); w.FG.Action("save")
     eq(w.FG.db.saved[1], r); eq(w.FG.character.mode, "stopped"); eq(w.FG.UI.tab, "saved")
     w.FG.UI.OpenJournal(); w.FG.UI.Select(r); w.FG.UI.RefreshJournal()
-    assert(w.FG.UI.detailText:GetText():find("25.0, 75.0", 1, true))
+    assert(w.FG.UI.report.location:GetText():find("25.0, 75.0", 1, true))
 end)
 
 test("corpse evidence survives auto-loot empty opening and starts on receipt only", function()
@@ -480,6 +480,145 @@ test("XP text shows active ETA without quest projection text and removes it when
     assert(w.bar.OverlayFrame.Text:GetStringWidth() <= 148)
     w.FG.Action("pause"); w.bar.StatusBar.width = 1000; w.FG.XPBar:Refresh()
     eq(w.bar.OverlayFrame.Text:GetText(), "200 / 1000 XP (20.0%)")
+end)
+
+test("full-width report navigation retains history filters sorting and page", function()
+    local w = H.native(); local r = w:start(); w.FG.Action("save")
+    local U = w.FG.UI
+    for index = 1, 14 do
+        local copy = w.FG.Copy(r); copy.id = "extra:" .. index
+        w.FG.db.saved[#w.FG.db.saved + 1] = copy
+    end
+    U.OpenJournal(); U.ShowList()
+    U.filters.character:SetText("Tester"); U.filters.realm:SetText("Realm")
+    U.filters.location:SetText("Forest"); U.filters.minimum:SetText("9"); U.filters.maximum:SetText("11")
+    U.sort, U.descending, U.page = "goldHour", false, 2
+    U.RefreshJournal(); U.rows[1].scripts.OnClick()
+    eq(U.reportVisible, true); eq(U.listFrame:IsShown(), false); eq(U.report.frame:IsShown(), true)
+    eq(U.report.tab, "overview"); U.report.back.scripts.OnClick()
+    eq(U.reportVisible, false); eq(U.listFrame:IsShown(), true); eq(U.page, 2)
+    eq(U.tab, "saved"); eq(U.sort, "goldHour"); eq(U.descending, false)
+    eq(U.filters.character:GetText(), "Tester"); eq(U.filters.realm:GetText(), "Realm")
+    eq(U.filters.location:GetText(), "Forest"); eq(U.filters.minimum:GetText(), "9"); eq(U.filters.maximum:GetText(), "11")
+end)
+
+test("report overview separates additive estimates from vendor comparison", function()
+    local w = H.native(); local r = w:start(); r.active = 3600
+    r.xp.quest, r.xp.other = 200, 300; r.coin.loot, r.coin.quest = 100, 200
+    r.items = {
+        ah = { link = "item:1", source = "loot", quantity = 2, vendor = 10, auctionable = true,
+            liveQuote = { price = 100, age = 1 } },
+        vendor = { link = "item:2", source = "quest", quantity = 3, vendor = 50, auctionable = false },
+    }
+    local U = w.FG.UI; U.OpenJournal(); local R = U.report
+    eq(R.metrics.xpHour:GetText(), "600"); eq(R.metrics.xp:GetText(), "600")
+    eq(R.metrics.active:GetText(), "1:00:00"); eq(R.metrics.goldHour:GetText(), w.FG.Money(640))
+    eq(R.labels.coin:GetText(), w.FG.Money(100)); eq(R.labels.questGold:GetText(), w.FG.Money(200))
+    eq(R.labels.vendor:GetText(), w.FG.Money(150)); eq(R.labels.ah:GetText(), w.FG.Money(190))
+    eq(R.labels.projected:GetText(), w.FG.Money(640)); eq(R.labels.baseline:GetText(), w.FG.Money(170))
+    eq(R.labels.vendorHour:GetText(), w.FG.Money(470))
+    assert(R.labels.baselineNote:GetText():find("not additional income", 1, true))
+    eq(R.labels.xpcombat:GetText(), "100"); eq(R.labels.xpquest:GetText(), "200"); eq(R.labels.xpother:GetText(), "300")
+end)
+
+test("report notices distinguish pending items from known zero vendor value", function()
+    local w = H.native(); local r = w:start()
+    r.items = { pending = { link = "item:2", source = "loot", quantity = 7 },
+        zero = { link = "item:3", source = "loot", quantity = 2, vendor = 0 } }
+    r.warnings.example = "A reward choice could not be observed."
+    w.FG.UI.OpenJournal(); local R = w.FG.UI.report
+    eq(R.totals.pending, 7); eq(R.totals.quantity, 9)
+    assert(R.labels.notice:GetText():find("7 item(s)", 1, true))
+    assert(R.labels.notice:GetText():find(r.warnings.example, 1, true))
+    R:SetTab("loot")
+    eq(R.lootRows[1].row.value.route, "pending")
+    eq(R.labels.loot1Value:GetText(), "Pending")
+    eq(R.labels.loot2Value:GetText(), "0g 00s 00c")
+end)
+
+test("loot report rows sort by advantage and reveal independent item details", function()
+    local w = H.native(); local r = w:start()
+    r.items = { first = { link = "item:1", source = "loot", quantity = 2, vendor = 10, auctionable = true,
+        liveQuote = { price = 100, age = 2 } },
+        second = { link = "item:2", source = "gathering", quantity = 3, vendor = 20, auctionable = false } }
+    w.FG.UI.OpenJournal(); local R = w.FG.UI.report; R:SetTab("loot")
+    eq(R.lootRows[1].row.entry.link, "item:1"); eq(R.labels.loot1Upside:GetText(), "+0g 01s 70c")
+    R.lootRows[1].scripts.OnClick()
+    eq(R.item, r.items.first); eq(R.itemLabels.reason:GetText(), R.lootRows[1].row.value.reason)
+    eq(R.lootRows[1].selection:IsShown(), true)
+    assert(R.itemLabels.quote:GetText():find("2.0 days", 1, true))
+    assert(R.itemLabels.source:GetText():find("quantity 2", 1, true))
+    R.lootRows[1].scripts.OnEnter(R.lootRows[1]); eq(w.env.GameTooltip.link, "item:1")
+    R.lootRows[2].scripts.OnClick()
+    eq(R.item, r.items.second); eq(R.lootRows[1].selection:IsShown(), false)
+    assert(R.itemLabels.source:GetText():find("Gathering / containers", 1, true))
+    eq(R.itemLabels.quote:GetText(), "No cached AH quote.")
+end)
+
+test("report refresh preserves scroll selection and unfinished edits without allocating frames", function()
+    local w = H.native(); local r = w:start(); local U = w.FG.UI
+    w.FG.XPBar:Refresh()
+    U.OpenJournal(); local R = U.report
+    R.scroll:SetVerticalScroll(90)
+    U.nameEdit:SetText("Typing name"); U.notesEdit:SetText("Typing notes")
+    local frameCount = #w.frames
+    w:advance(1.2)
+    eq(R.scroll:GetVerticalScroll(), 90); eq(#w.frames, frameCount)
+    eq(U.nameEdit:GetText(), "Typing name"); eq(U.notesEdit:GetText(), "Typing notes")
+    R:SetTab("details"); R.scroll:SetVerticalScroll(180)
+    R:SetTab("overview"); eq(R.scroll:GetVerticalScroll(), 90)
+    R:SetTab("details"); eq(R.scroll:GetVerticalScroll(), 180)
+    local other = w.FG.Copy(r); other.id = "different"; other.closed = true
+    w.FG.db.saved[#w.FG.db.saved + 1] = other
+    U.Select(other); U.RefreshJournal()
+    eq(R.tab, "overview"); eq(R.scroll:GetVerticalScroll(), 0); eq(R.item, nil)
+end)
+
+test("session details wrap notes expose missing coordinates and sort visited zones", function()
+    local w = H.native(); local r = w:start()
+    r.name = string.rep("Long session ", 15); r.notes = string.rep("A useful observation about this farming spot. ", 30)
+    r.startLocation = { zone = "Dungeon", mapID = 5 }; r.zones = {
+        short = { zone = "Short", seconds = 20, mapID = 1 },
+        long = { zone = "Long", seconds = 120, mapID = 2 },
+    }
+    w.FG.Action("save"); w.FG.UI.OpenJournal(); w.FG.UI.Select(r); w.FG.UI.RefreshJournal()
+    local R = w.FG.UI.report; R:SetTab("details")
+    eq(R.name:GetText(), r.name); eq(R.labels.notes:GetText(), r.notes)
+    assert(R.labels.startLocation:GetText():find("coordinates unavailable", 1, true))
+    assert(R.labels.endLocation:GetText():find("25.0, 75.0", 1, true))
+    assert(R.labels.zone1:GetText():find("Long", 1, true)); eq(R.labels.zoneTime1:GetText(), "0:02:00")
+    assert(R.labels.frozen:GetText():find("frozen", 1, true)); eq(R.labels.cut:GetText(), "5.0%")
+    w.FG.UI.nameEdit:SetText("Renamed"); w.FG.UI.notesEdit:SetText("New notes\nA second line")
+    w.FG.UI.applyName.scripts.OnClick()
+    eq(r.name, "Renamed"); eq(R.labels.notes:GetText(), "New notes\nA second line")
+end)
+
+test("report handles empty histories zero items and running paused saved unsaved states", function()
+    local w = H.native(); local U = w.FG.UI
+    U.OpenJournal(); eq(U.emptyList:IsShown(), true); eq(U.reportVisible, false)
+    local r = w:start(); U.Select(r); U.RefreshJournal(); local R = U.report
+    eq(R.status:GetText(), "Running"); eq(U.delete.enabled, false); eq(U.promote.enabled, false)
+    R:SetTab("loot"); assert(R.labels.emptyLoot:IsShown())
+    w.FG.Action("pause"); eq(R.status:GetText(), "Paused")
+    w.FG.Action("stop"); eq(R.status:GetText(), "Unsaved"); eq(U.promote.enabled, true)
+    local endedAt, active, quoted = r.endedAt, r.active, w.FG.Copy(r.pricing)
+    U.promote.scripts.OnClick(); eq(R.status:GetText(), "Saved"); eq(U.promote.enabled, false)
+    eq(r.endedAt, endedAt); eq(r.active, active); eq(r.pricing.ahCut, quoted.ahCut)
+    U.delete.scripts.OnClick(); w.env.StaticPopupDialogs[w.popup.key].OnAccept(nil, w.popup.data)
+    eq(U.reportVisible, false); eq(#w.FG.db.saved, 0)
+end)
+
+test("closed report retains frozen quotes after settings change and selection changes", function()
+    local w = H.native(); local r = w:start()
+    r.items = { a = { link = "item:1", source = "loot", quantity = 2, vendor = 10, auctionable = true,
+        liveQuote = { price = 100, age = 2 } } }
+    w.FG.Action("save"); w.FG.db.settings.ahCut = 90
+    w.FG.UI.OpenJournal(); w.FG.UI.Select(r); w.FG.UI.RefreshJournal(); local R = w.FG.UI.report
+    eq(R.labels.ah:GetText(), w.FG.Money(190)); R:SetTab("details"); eq(R.labels.cut:GetText(), "5.0%")
+    w.FG.UI.delete.scripts.OnClick()
+    w.FG.Action("play"); local other = w:start(); w.FG.UI.Select(other); w.FG.UI.RefreshJournal()
+    w.env.StaticPopupDialogs[w.popup.key].OnAccept(nil, w.popup.data)
+    eq(w.FG.UI.selected, other); eq(w.FG.UI.reportVisible, true)
 end)
 
 print(string.format("\n%d passed, %d failed", passed, failed))

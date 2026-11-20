@@ -37,6 +37,10 @@ Target: Forever **1.60.1.70959**, interface **16001**. Every checkbox below is *
 - [ ] Compare two characters/realms: shared history, independent unfinished sessions, persistent strip settings.
 - [ ] Verify start/end map, zone, subzone, coordinates, visited-zone times; unavailable map coordinates say unavailable.
 - [ ] Move/lock/scale/reset strip, test UI scale/small screens, native Settings scrolling, tooltips, journal navigation, and ESC.
+- [ ] Select a session for its full-width report; Back restores Saved/Unsaved/Current tab, filters, sorting, and page. Reopen after closing; select a different session and verify Overview/top reset.
+- [ ] Check report headings, aligned XP/earnings values, separate baseline comparison, incomplete-data notices, and persistent headline metrics at normal and small UI scales. Inspect clipping and wrapping of long names, item links, coordinates, notes, and large money values.
+- [ ] Switch Overview/Loot/Session details; scroll, select a loot row, type an edit, and wait for live updates. Scroll positions, selected item, and unfinished edits remain intact. Item tooltip and independently scrolling recommendation details work.
+- [ ] Rename/add long notes, promote an Unsaved report, delete with confirmation, and compare frozen pricing assumptions with original totals. Start/end locations and visited zones remain accessible, with zones sorted by active time.
 - [ ] Inspect Lua errors and blocked-action/taint warnings during combat and out of combat with normal UI addons.
 
 No game-client results have been recorded for this preview.

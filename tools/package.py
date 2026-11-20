@@ -10,7 +10,7 @@ content = toc.read_text(encoding="utf-8")
 version = re.search(r"^## Version: ([0-9]+\.[0-9]+\.[0-9]+)$", content, re.MULTILINE).group(1)
 runtime = [line.strip() for line in content.splitlines() if line.strip() and not line.startswith("#")]
 assert runtime == ["Util.lua", "Session.lua", "Valuation.lua", "Parsing.lua", "Collector.lua",
-                   "XPBar.lua", "UI.lua", "Core.lua"], "Unexpected TOC load order"
+                   "XPBar.lua", "UI.lua", "Report.lua", "Core.lua"], "Unexpected TOC load order"
 files = [toc.name, *runtime, "README.md", "docs/IN_GAME_TESTING.md"]
 output = ROOT / "dist" / f"ForeverGrind-{version}.zip"
 output.parent.mkdir(exist_ok=True)
