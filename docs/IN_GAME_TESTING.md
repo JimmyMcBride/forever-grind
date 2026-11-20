@@ -4,7 +4,8 @@ Target: Forever **1.60.1.70959**, interface **16001**. Every checkbox below is *
 
 ## Native XP bar
 
-- [ ] Current/required XP, completed-quest rewards, percentage, partial data, and tooltip values agree with the quest log.
+- [ ] Current/required XP and percentage agree with the character; completed-quest rewards, projection, and partial-data details appear in the tooltip without extra quest text on the bar.
+- [ ] Running-session time to level matches XP remaining / active-session XP rate, rounded up to minutes. It hides before a rate exists and while armed/paused/stopped; unturned-in quest rewards do not reduce the ETA. Narrow bars shorten the wording.
 - [ ] Complete/remove/turn in quests; uncached rewards resolve asynchronously without changing the selected quest or map.
 - [ ] Resize native bar; narrow text fits; gold projection covers only current-to-projected progress and clips correctly.
 - [ ] Cross a level with ready rewards; level-ready overflow refers to the current requirement only.

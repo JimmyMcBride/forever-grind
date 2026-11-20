@@ -2,7 +2,7 @@
 
 Native XP-bar projections and a compact farming-session tracker for **WoW Forever 1.60.1.70959, interface 16001**. Original, dependency-free Lua 5.1 addon. Auctionator is optional. No dependency on Grinding Made Simple.
 
-Version **0.1.0 is a preview**. Automated and mocked integration checks pass; actual game behavior still needs the [in-game checklist](docs/IN_GAME_TESTING.md).
+Version **0.1.1 is a preview**. Automated and mocked integration checks pass; actual game behavior still needs the [in-game checklist](docs/IN_GAME_TESTING.md).
 
 ## Install
 
@@ -14,7 +14,9 @@ Run `/fg` for the journal and `/fg settings` for Blizzard's AddOns settings. The
 
 ## XP bar
 
-Blizzard's status-tracking manager supplies the existing XP bar. Forever Grind adds current/required XP, percentage, completed-quest XP, and the projection after turn-ins. Text shortens to fit; hover retains full values. The gold overlay begins at current progress and clips at the level boundary. A level-ready message reports overflow beyond the **current** level's requirement; it does not estimate a next-level percentage.
+Blizzard's status-tracking manager supplies the existing XP bar. Forever Grind adds current/required XP and percentage. During a running session it also shows **Level in n hours and x minutes**, using XP remaining divided by the session's XP earned per active second. Completed but unturned-in quests are not subtracted from XP remaining. The estimate rounds up to the next minute and appears once the session has both earned XP and active time; paused/stopped/armed sessions show no ETA.
+
+Text shortens to fit. Completed-quest totals, projected percentage, partial-data status, and level-ready overflow appear in the tooltip rather than cluttering the bar text. The gold overlay begins at current progress and clips at the level boundary; it does not estimate a next-level percentage.
 
 Projection updates even while sessions are armed, stopped, or paused. Uncached quest rewards are requested asynchronously and marked partial until available. Native position, rested-XP region, animations, and tooltip handlers remain in place. Hidden/replaced bars and reputation-only displays leave session tracking available.
 
@@ -64,7 +66,7 @@ python3 tools/check.py
 python3 tools/package.py
 ```
 
-The package is `dist/ForeverGrind-0.1.0.zip`, containing one `ForeverGrind/` directory. CI runs the same checks on pushes and pull requests. Tests exercise pure calculations and a mocked client; they do not prove live-client API timing, taint safety, locale behavior, or visual appearance.
+The package is `dist/ForeverGrind-0.1.1.zip`, containing one `ForeverGrind/` directory. CI runs the same checks on pushes and pull requests. Tests exercise pure calculations and a mocked client; they do not prove live-client API timing, taint safety, locale behavior, or visual appearance.
 
 Modules: `Session.lua` state machine; `Parsing.lua` localized notifications/XP deltas; `Collector.lua` single acquisition pipeline; `Valuation.lua` estimates; `Util.lua` storage/helpers; `XPBar.lua` native attachment; `UI.lua` strip/settings/journal; `Core.lua` client event/API bridge. Visible timers refresh twice per second. Inventory checks are acquisition/bag-event driven, not continuous scans.
 

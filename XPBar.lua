@@ -9,6 +9,22 @@ function XPBar.Project(xp, maximum, quests)
         overflow = math.max(0, xp + quests - maximum), percent = (xp + quests) * 100 / maximum }
 end
 
+function XPBar.TimeToLevel(current, maximum, record, mode)
+    if mode ~= "running" or not record or record.active <= 0 or maximum <= 0 then return end
+    local earned = record.xp.combat + record.xp.quest + record.xp.other
+    if earned <= 0 then return end
+    return math.max(0, maximum - current) * record.active / earned
+end
+
+local function LevelTime(seconds, compact)
+    local minutes = math.ceil(seconds / 60)
+    local hours = math.floor(minutes / 60)
+    minutes = minutes % 60
+    if compact then return string.format("Level in %dh %dm", hours, minutes) end
+    return string.format("Level in %d %s and %d %s", hours, hours == 1 and "hour" or "hours",
+        minutes, minutes == 1 and "minute" or "minutes")
+end
+
 function XPBar:ScanQuests()
     self.questXP, self.missing = 0, 0
     if not C_QuestLog or not C_QuestLog.GetQuestIDForLogIndex or not GetQuestLogRewardXP then return end
@@ -36,6 +52,8 @@ function XPBar:Tooltip()
     GameTooltip:AddLine("Forever Grind: completed quests", 1, 0.8, 0.2)
     GameTooltip:AddLine(string.format("Current: %d / %d XP (%.1f%%)", current, maximum,
         maximum > 0 and current * 100 / maximum or 0), 1, 1, 1, true)
+    local remaining = self.TimeToLevel(current, maximum, FG.character.current, FG.character.mode)
+    if remaining then GameTooltip:AddLine(LevelTime(remaining), 0.4, 0.75, 1, true) end
     GameTooltip:AddLine(string.format("Ready rewards: +%d XP; projected %.1f%% of current level", self.questXP, projection.percent), 1, 1, 1, true)
     if current + self.questXP >= maximum and maximum > 0 then
         GameTooltip:AddLine(string.format("Level ready; %d XP beyond current requirement", projection.overflow), 1, 0.8, 0.2, true)
@@ -58,20 +76,15 @@ function XPBar:Paint(state)
     state.fill:SetShown(FG.db.settings.questOverlay and bar:IsShown() and projection.length > 0)
     local text = bar.OverlayFrame and bar.OverlayFrame.Text
     if text and FG.db.settings.xpText and maximum > 0 then
-        local suffix = current + self.questXP >= maximum
-            and string.format("Level ready (+%d beyond)", projection.overflow)
-            or string.format("after turn-ins %.1f%%", projection.percent)
-        local long = string.format("%d / %d XP (%.1f%%) | Quests +%d | %s%s",
-            current, maximum, current * 100 / maximum, self.questXP, suffix, self.missing > 0 and " [partial]" or "")
-        text:SetText(long)
+        local remaining = self.TimeToLevel(current, maximum, FG.character.current, FG.character.mode)
+        local base = string.format("%d / %d XP (%.1f%%)", current, maximum, current * 100 / maximum)
+        text:SetText(base .. (remaining and (" | " .. LevelTime(remaining)) or ""))
         if text:GetStringWidth() > width - 12 then
-            text:SetText(string.format("%.1f%% | +%s quest XP | %s%s", current * 100 / maximum,
-                FG.Short(self.questXP), suffix, self.missing > 0 and " [partial]" or ""))
+            text:SetText(string.format("%.1f%%%s", current * 100 / maximum,
+                remaining and (" | " .. LevelTime(remaining, true)) or ""))
         end
-        if text:GetStringWidth() > width - 12 then
-            local short = current + self.questXP >= maximum and ("Level ready +" .. FG.Short(projection.overflow))
-                or string.format("→ %.1f%%", projection.percent)
-            text:SetText(string.format("%.1f%% %s%s", current * 100 / maximum, short, self.missing > 0 and "*" or ""))
+        if remaining and text:GetStringWidth() > width - 12 then
+            text:SetText(LevelTime(remaining, true))
         end
         if text:GetStringWidth() > width - 12 then text:SetText(string.format("%.0f%%", current * 100 / maximum)) end
         text:Show()

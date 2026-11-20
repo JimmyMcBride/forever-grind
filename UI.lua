@@ -300,7 +300,7 @@ local function CreateSettings()
     scroll:SetScrollChild(panel)
     Text(panel, "Forever Grind", 16, -18, 520, 16)
     local y = -54
-    for _, item in ipairs({ { "auctionator", "Use Auctionator estimates" }, { "xpText", "Show XP / completed-quest text on Blizzard bar" },
+    for _, item in ipairs({ { "auctionator", "Use Auctionator estimates" }, { "xpText", "Show XP / active-session time to level on Blizzard bar" },
         { "questOverlay", "Highlight completed-quest XP" }, { "locked", "Lock compact strip position" } }) do
         local key = item[1]
         local check = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")

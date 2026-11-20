@@ -2,7 +2,7 @@
 ## Title: Forever Grind
 ## Notes: Native XP-bar projections, farming sessions, loot estimates, and a shared location journal.
 ## Author: JimmyMcBride
-## Version: 0.1.0
+## Version: 0.1.1
 ## OptionalDeps: Auctionator
 ## SavedVariables: ForeverGrindDB
 ## SavedVariablesPerCharacter: ForeverGrindCharacterDB

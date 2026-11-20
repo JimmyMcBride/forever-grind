@@ -300,7 +300,7 @@ test("native XP attachment resizes overlay, preserves rested region and restores
     local rest = w.bar.ExhaustionLevelFillBar
     w.bar.StatusBar.width = 1000; w.bar.StatusBar.scripts.OnSizeChanged()
     near(state.fill.width, 300); eq(w.bar.ExhaustionLevelFillBar, rest)
-    assert(w.bar.OverlayFrame.Text:GetText():find("300", 1, true))
+    eq(w.bar.OverlayFrame.Text:GetText(), "100 / 1000 XP (10.0%)")
     w.FG.db.settings.xpText = false; w.FG.XPBar:Refresh()
     eq(w.bar.OverlayFrame.Text:GetText(), "Native XP"); eq(w.bar.OverlayFrame.Text:IsShown(), false)
 end)
@@ -451,6 +451,35 @@ test("logout preserves armed state without creating or resuming a session", func
     w:emit("PLAYER_LOGOUT")
     eq(w.FG.character.mode, "armed"); eq(w.FG.character.current, nil)
     eq(#w.FG.db.temporary, 0)
+end)
+
+test("time to level uses remaining XP and all earned XP over active time", function()
+    local X = H.pure().XPBar
+    local record = { active = 1800, xp = { combat = 300, quest = 150, other = 50 } }
+    near(X.TimeToLevel(400, 1000, record, "running"), 2160)
+    eq(X.TimeToLevel(1000, 1000, record, "running"), 0)
+    eq(X.TimeToLevel(0, 0, record, "running"), nil)
+    for _, mode in ipairs({ "armed", "paused", "stopped" }) do
+        eq(X.TimeToLevel(400, 1000, record, mode), nil)
+    end
+    record.active = 0; eq(X.TimeToLevel(400, 1000, record, "running"), nil)
+    record.active = 100; record.xp = { combat = 0, quest = 0, other = 0 }
+    eq(X.TimeToLevel(400, 1000, record, "running"), nil)
+end)
+
+test("XP text shows active ETA without quest projection text and removes it when paused", function()
+    local w = H.native(); local r = w:start()
+    r.active = 600
+    w.bar.StatusBar.width = 1000
+    w.quests = { { id = 5, complete = true, known = true, xp = 900 } }
+    w:emit("QUEST_LOG_UPDATE"); w.FG.XPBar:Refresh()
+    eq(w.bar.OverlayFrame.Text:GetText(), "200 / 1000 XP (20.0%) | Level in 1 hour and 20 minutes")
+    near(w.FG.XPBar.attached[w.bar].fill.width, 800)
+    w.bar.StatusBar.width = 160; w.FG.XPBar:Refresh()
+    assert(w.bar.OverlayFrame.Text:GetText():find("Level in", 1, true))
+    assert(w.bar.OverlayFrame.Text:GetStringWidth() <= 148)
+    w.FG.Action("pause"); w.bar.StatusBar.width = 1000; w.FG.XPBar:Refresh()
+    eq(w.bar.OverlayFrame.Text:GetText(), "200 / 1000 XP (20.0%)")
 end)
 
 print(string.format("\n%d passed, %d failed", passed, failed))
