@@ -2,12 +2,14 @@
 ## Title: Forever Grind
 ## Notes: Native XP-bar projections, farming sessions, loot estimates, and a shared location journal.
 ## Author: JimmyMcBride
-## Version: 0.1.2
-## OptionalDeps: Auctionator
+## Version: 0.2.0
+## OptionalDeps: Auctionator, TomTom
 ## SavedVariables: ForeverGrindDB
 ## SavedVariablesPerCharacter: ForeverGrindCharacterDB
 
 Util.lua
+Route.lua
+Kills.lua
 Session.lua
 Valuation.lua
 Parsing.lua
@@ -15,4 +17,5 @@ Collector.lua
 XPBar.lua
 UI.lua
 Report.lua
+Map.lua
 Core.lua

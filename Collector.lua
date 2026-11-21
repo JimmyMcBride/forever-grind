@@ -40,7 +40,7 @@ end
 
 function Collector:Rebaseline()
     self.previousXP = self.api.xp()
-    self.credits = {}
+    self.credits, self.deaths, self.recentXP = {}, {}, {}
 end
 
 function Collector:Loot(text, lineID)
@@ -61,9 +61,39 @@ function Collector:Money(text, lineID)
     end
 end
 
-function Collector:Kill(text)
-    local amount = FG.Parsing.KillXP(text, self.api.globals)
-    if amount then self:Queue({ kind = "kill", amount = amount }) end
+function Collector:Kill(text, lineID)
+    local mode = self.model.character.mode
+    if mode ~= "running" and mode ~= "armed" then return end
+    local amount, name = FG.Parsing.KillXP(text, self.api.globals)
+    if amount and self:Unique("kill", lineID) then
+        local record = self.model.character.current
+        if record and record.route and lineID and record.route.lines[tostring(lineID)] then return end
+        self:Queue({ kind = "kill", source = "xp", amount = amount, name = name, lineID = lineID })
+    end
+end
+
+function Collector:Death(guid)
+    local mode = self.model.character.mode
+    if mode ~= "running" and mode ~= "armed" then return end
+    self.deaths = self.deaths or {}
+    local epoch = self.api.epoch()
+    for key, event in pairs(self.deaths) do if epoch - event.epoch > 2 then self.deaths[key] = nil end end
+    local record = self.model.character.current
+    local index = record and record.route and record.route.guids[guid]
+    local kill = index and record.route.kills[index]
+    if kill and not record.closed and not kill.deathObserved then
+        kill.deathObserved = true; record.route.revision = record.route.revision + 1
+    end
+    self.deaths[guid] = { context = self.api.context(), now = self.api.now(), epoch = epoch }
+end
+
+function Collector:PartyKill(guid, name, npcID)
+    local mode = self.model.character.mode
+    if mode ~= "running" and mode ~= "armed" then return end
+    local death = self.deaths and self.deaths[guid]
+    local event = { kind = "kill", source = "party", amount = 0, guid = guid, name = name, npcID = npcID }
+    if death and self.api.now() - death.now <= 2 then event.context, event.deathNow = death.context, death.now end
+    self:Queue(event)
 end
 
 function Collector:Offer(offer)
@@ -104,6 +134,7 @@ function Collector:Flush()
         local event = events[trigger]
         self.model:Start(event.now, event.epoch, event.context)
     end
+    self.model:Tick(self.api.now(), self.api.context().location)
     local delta, jump, excludedQuestXP = 0, false, 0
     local questSeen = {}
     for index, event in ipairs(events) do
@@ -111,7 +142,11 @@ function Collector:Flush()
         if event.kind == "xp" and (included or killStart) then
             delta, jump = delta + event.amount, jump or event.jump
         elseif event.kind == "kill" and included then
-            self.credits[#self.credits + 1] = { kind = "combat", amount = event.amount, at = event.now }
+            event.processedAt = self.api.now()
+            local kill, duplicate = FG.Kills.Record(self.model.character.current, event)
+            if event.source == "xp" and not duplicate then
+                self.credits[#self.credits + 1] = { kind = "combat", amount = event.amount, at = event.now, kill = kill }
+            end
         elseif event.kind == "coin" and included then
             self.model:Coin(event.amount, "loot")
         elseif event.kind == "item" and included then
@@ -142,7 +177,7 @@ function Collector:Flush()
     delta = math.max(0, delta - excludedQuestXP)
     local now, usable, known = self.api.now(), {}, 0
     for _, credit in ipairs(self.credits) do
-        if now - credit.at <= 1 then usable[#usable + 1] = credit; known = known + credit.amount end
+        if now - credit.at <= 2 then usable[#usable + 1] = credit; known = known + credit.amount end
     end
     self.credits = usable
     if jump then delta = math.max(delta, known) end
@@ -154,6 +189,7 @@ function Collector:Flush()
                 if credit.kind == kind then
                     local amount = math.min(remaining, credit.amount)
                     self.model:XP(amount, kind)
+                    if kind == "combat" then FG.Kills.Assign(self.model.character.current, credit.kill, amount) end
                     remaining = remaining - amount
                     credit.amount = credit.amount - amount
                 end
@@ -162,9 +198,33 @@ function Collector:Flush()
         local onlyCombat = #usable > 0
         for _, credit in ipairs(usable) do if credit.kind ~= "combat" then onlyCombat = false end end
         self.model:XP(remaining, onlyCombat and "combat" or "other")
-        self.credits = {}
-        for _, credit in ipairs(usable) do if credit.amount > 0 then self.credits[#self.credits + 1] = credit end end
+        if remaining > 0 and not onlyCombat then
+            self.recentXP = self.recentXP or {}
+            self.recentXP[#self.recentXP + 1] = { amount = remaining, at = now, record = self.model.character.current }
+        end
     end
+    -- A unit-XP update may precede its localized kill notification. Reclassify
+    -- only already-counted, recent Other XP; never add the message a second time.
+    local recent = {}
+    for _, packet in ipairs(self.recentXP or {}) do
+        if packet.record == self.model.character.current and now - packet.at <= 2 then recent[#recent + 1] = packet end
+    end
+    for _, credit in ipairs(usable) do
+        if credit.kind == "combat" and credit.amount > 0 then
+            for index = #recent, 1, -1 do
+                local packet = recent[index]
+                if math.abs(packet.at - credit.at) <= 2 then
+                    local amount = math.min(packet.amount, credit.amount)
+                    self.model.character.current.xp.other = self.model.character.current.xp.other - amount
+                    self.model:XP(amount, "combat")
+                    FG.Kills.Assign(self.model.character.current, credit.kill, amount)
+                    packet.amount, credit.amount = packet.amount - amount, credit.amount - amount
+                end
+            end
+        end
+    end
+    self.recentXP, self.credits = recent, {}
+    for _, credit in ipairs(usable) do if credit.amount > 0 then self.credits[#self.credits + 1] = credit end end
     self.api.changed()
 end
 

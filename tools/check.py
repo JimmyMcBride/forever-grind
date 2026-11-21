@@ -3,12 +3,15 @@
 import re
 import subprocess
 from pathlib import Path
+from assets import dot
 
 ROOT = Path(__file__).resolve().parents[1]
 lua_files = sorted(str(path.relative_to(ROOT)) for path in ROOT.glob("*.lua"))
 lua_files += sorted(str(path.relative_to(ROOT)) for path in ROOT.glob("tests/*.lua"))
 subprocess.run(["luac5.1", "-p", *lua_files], cwd=ROOT, check=True)
 subprocess.run(["lua5.1", "tests/run.lua"], cwd=ROOT, check=True)
+
+assert (ROOT / "Media/MapDot.tga").read_bytes() == dot(), "Map dot differs from original generator"
 
 for path in [*ROOT.glob("*.lua"), *ROOT.glob("*.toc"), *ROOT.glob("*.md"),
              *ROOT.glob("docs/*.md"), *ROOT.glob("tests/*.lua"), *ROOT.glob("tools/*.py"),

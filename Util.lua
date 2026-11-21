@@ -1,6 +1,6 @@
 local _, FG = ...
 FG.title = "Forever Grind"
-FG.version = "0.1.2"
+FG.version = "0.2.0"
 
 function FG.Copy(value)
     if type(value) ~= "table" then return value end
@@ -45,10 +45,10 @@ end
 function FG.InitializeDB(global, character)
     global = type(global) == "table" and global or {}
     character = type(character) == "table" and character or {}
-    if (tonumber(global.version) or 0) > 1 or (tonumber(character.version) or 0) > 1 then
+    if (tonumber(global.version) or 0) > 2 or (tonumber(character.version) or 0) > 2 then
         error("Forever Grind: saved data belongs to a newer addon version; install that version before loading it.")
     end
-    global.version, character.version = 1, 1
+    global.version, character.version = 2, 2
     global.saved = type(global.saved) == "table" and global.saved or {}
     global.temporary = type(global.temporary) == "table" and global.temporary or {}
     global.nextID = tonumber(global.nextID) or 1
@@ -63,6 +63,9 @@ function FG.InitializeDB(global, character)
     global.settings.scale = math.max(0.6, math.min(2, global.settings.scale))
     if type(character.current) ~= "table" then character.current = nil end
     if character.current then
+        FG.Route.Ensure(character.current, true)
+        character.current.route.generation = (character.current.route.generation or 1) + 1
+        FG.Route.Break(character.current)
         character.mode = "paused"
     elseif character.mode ~= "stopped" then
         character.mode = "armed"

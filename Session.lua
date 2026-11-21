@@ -18,6 +18,8 @@ function Session:Start(now, epoch, context)
     self.db.nextID = self.db.nextID + 1
     self.character.current, self.character.mode = record, "running"
     self.lastTick, self.lastLocation = now, FG.Copy(context.location)
+    FG.Route.Ensure(record)
+    FG.Route.Sample(record, context.location, true)
     return record
 end
 
@@ -31,6 +33,7 @@ function Session:Tick(now, location)
         record.zones[key] = record.zones[key] or { zone = previous.zone, mapID = previous.mapID, seconds = 0 }
         record.zones[key].seconds = record.zones[key].seconds + elapsed
         self.lastTick, self.lastLocation = now, FG.Copy(location)
+        FG.Route.Sample(record, location)
     end
 end
 
@@ -38,6 +41,8 @@ function Session:Pause(now, epoch, location)
     if self.character.mode == "armed" then self.character.mode = "stopped"; return end
     if self.character.mode ~= "running" then return end
     self:Tick(now, location)
+    FG.Route.Sample(self.character.current, location, true)
+    FG.Route.Break(self.character.current)
     self.character.current.pauseEpoch = epoch
     self.character.mode = "paused"
 end
@@ -49,6 +54,9 @@ function Session:Play(now, epoch, location)
         record.pauseEpoch = nil
         self.character.mode = "running"
         self.lastTick, self.lastLocation = now, FG.Copy(location)
+        FG.Route.Ensure(record).generation = (record.route.generation or 1) + 1
+        FG.Route.Break(record)
+        FG.Route.Sample(record, location, true)
     elseif not record then
         self.character.mode = "armed"
     end
@@ -88,6 +96,7 @@ function Session:Stop(permanent, now, epoch, context)
     if self.character.mode == "paused" then
         record.paused = record.paused + math.max(0, epoch - (record.pauseEpoch or epoch))
     end
+    if self.character.mode == "running" then FG.Route.Sample(record, context.location, true) end
     record.pauseEpoch = nil
     record.endedAt, record.endLocation = epoch, FG.Copy(context.location)
     record.levelEnd, record.closed = context.level, true

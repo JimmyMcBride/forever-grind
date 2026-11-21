@@ -1,17 +1,48 @@
 local addonName, FG = ...
 local events = CreateFrame("Frame")
 local lootContext, registeredAuctionator
+local identities, attackers = {}, {}
+local killEventsAvailable = true
+
+local function Read(fn, ...)
+    if type(fn) ~= "function" then return end
+    local ok, value = pcall(fn, ...)
+    if ok then return FG.Plain(value) end
+end
+
+local function ObserveUnit(unit)
+    local guid = Read(UnitGUID, unit)
+    if not FG.Kills.Identity(guid) then return end
+    local name = Read(UnitName, unit)
+    if type(name) == "string" and name ~= "" then identities[guid] = name end
+end
+
+local function GroupAttackers()
+    attackers = {}
+    local function add(unit)
+        local guid = Read(UnitGUID, unit)
+        if type(guid) == "string" then attackers[guid] = true end
+    end
+    add("player"); add("pet")
+    for i = 1, 4 do add("party" .. i); add("partypet" .. i) end
+    for i = 1, 40 do add("raid" .. i); add("raidpet" .. i) end
+end
 
 function FG.Context()
     local location = { zone = GetZoneText(), subzone = GetSubZoneText() }
-    local id = C_Map.GetBestMapForUnit("player")
+    local id = Read(C_Map.GetBestMapForUnit, "player")
     location.mapID = id
     if id then
         local point = C_Map.GetPlayerMapPosition(id, "player")
         if point then
             local x, y = point:GetXY()
-            if x and y and not (x == 0 and y == 0) then location.x, location.y = x, y end
+            x, y = FG.Plain(x), FG.Plain(y)
+            if type(x) == "number" and type(y) == "number" and not (x == 0 and y == 0) then location.x, location.y = x, y end
         end
+    end
+    if id and C_Map.GetMapWorldSize then
+        local ok, width, height = pcall(C_Map.GetMapWorldSize, id)
+        if ok then location.width, location.height = FG.Plain(width), FG.Plain(height) end
     end
     return { character = UnitName("player"), realm = GetRealmName(), guid = UnitGUID("player"),
         level = UnitLevel("player"), location = location }
@@ -91,6 +122,10 @@ function FG.Reprice()
 end
 
 function FG.Changed()
+    local record = FG.character and FG.character.current
+    if record and record.route and not killEventsAvailable then
+        record.route.notices.events = "Credited-kill events are unavailable; zero-XP mob counts may be incomplete."
+    end
     if FG.UI then FG.UI.dirty = true end
 end
 
@@ -163,7 +198,7 @@ function FG.Action(action)
         end
     end
     FG.collector:Rebaseline()
-    lootContext = nil
+    lootContext, identities = nil, {}
     FG.Changed()
     FG.UI.Refresh()
 end
@@ -184,6 +219,7 @@ local function Initialize()
         context = FG.Context, after = C_Timer.After, resolveLink = ResolveLink, lootOrigin = LootOrigin,
         loadItem = FG.LoadItem, changed = FG.Changed })
     FG.collector:Rebaseline()
+    GroupAttackers()
     if type(GetQuestReward) == "function" then hooksecurefunc("GetQuestReward", function(index) FG.collector:Choice(index) end) end
     FG.UI.Create()
     FG.XPBar:ScanQuests()
@@ -195,10 +231,15 @@ local function Initialize()
 end
 
 for _, event in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_LOGOUT", "PLAYER_XP_UPDATE",
-    "PLAYER_LEVEL_UP", "CHAT_MSG_COMBAT_XP_GAIN", "CHAT_MSG_LOOT", "CHAT_MSG_MONEY", "LOOT_READY", "LOOT_OPENED", "LOOT_CLOSED",
+    "PLAYER_LEVEL_UP", "PLAYER_LEAVING_WORLD", "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "NAME_PLATE_UNIT_ADDED",
+    "GROUP_ROSTER_UPDATE", "UNIT_PET", "CHAT_MSG_COMBAT_XP_GAIN", "CHAT_MSG_LOOT", "CHAT_MSG_MONEY", "LOOT_READY", "LOOT_OPENED", "LOOT_CLOSED",
     "QUEST_COMPLETE", "QUEST_ITEM_UPDATE", "QUEST_TURNED_IN", "QUEST_LOG_UPDATE", "QUEST_ACCEPTED", "QUEST_REMOVED",
     "QUEST_DATA_LOAD_RESULT", "GET_ITEM_INFO_RECEIVED", "BAG_UPDATE_DELAYED", "ZONE_CHANGED", "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA", "UPDATE_EXHAUSTION" }) do
     events:RegisterEvent(event)
+end
+for _, event in ipairs({ "PARTY_KILL", "UNIT_DIED" }) do
+    local ok = pcall(events.RegisterEvent, events, event)
+    if event == "PARTY_KILL" and not ok then killEventsAvailable = false end
 end
 events:SetScript("OnEvent", function(_, event, ...)
     if event == "ADDON_LOADED" and ... == addonName then Initialize(); return end
@@ -207,9 +248,35 @@ events:SetScript("OnEvent", function(_, event, ...)
     elseif event == "PLAYER_LOGOUT" then
         FG.collector:Boundary()
         if FG.character.mode == "running" then FG.Action("pause") end
+    elseif event == "GROUP_ROSTER_UPDATE" or event == "UNIT_PET" then GroupAttackers()
+    elseif event == "PLAYER_TARGET_CHANGED" then ObserveUnit("target")
+    elseif event == "UPDATE_MOUSEOVER_UNIT" then ObserveUnit("mouseover")
+    elseif event == "NAME_PLATE_UNIT_ADDED" then ObserveUnit(...)
+    elseif event == "UNIT_DIED" then
+        local guid = FG.Plain(...)
+        if FG.Kills.Identity(guid) then FG.collector:Death(guid) end
+    elseif event == "PARTY_KILL" then
+        local attacker, victim = ...
+        attacker, victim = FG.Plain(attacker), FG.Plain(victim)
+        local npcID = FG.Kills.Identity(victim)
+        if type(attacker) == "string" and npcID and attackers[attacker] then
+            local name = Read(UnitNameFromGUID, victim) or identities[victim]
+            FG.collector:PartyKill(victim, type(name) == "string" and name ~= "" and name or nil, npcID)
+        elseif FG.character.current and (attacker == nil or victim == nil) then
+            FG.character.current.route.notices.restricted = "Some kill identities were restricted; mob counts may be incomplete."
+        end
+    elseif event == "PLAYER_LEAVING_WORLD" then
+        FG.collector:Boundary()
+        if FG.character.mode == "running" then
+            FG.Route.Sample(FG.character.current, FG.Context().location, true)
+            FG.Route.Break(FG.character.current)
+        end
+        identities = {}
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        GroupAttackers(); FG.Route.Break(FG.character.current)
     elseif event == "PLAYER_XP_UPDATE" then
         if ... == "player" then FG.collector:ObserveXP(SnapshotXP()) end
-    elseif event == "CHAT_MSG_COMBAT_XP_GAIN" then FG.collector:Kill(...)
+    elseif event == "CHAT_MSG_COMBAT_XP_GAIN" then local text = ...; FG.collector:Kill(text, select(11, ...))
     elseif event == "CHAT_MSG_LOOT" then local text = ...; FG.collector:Loot(text, select(11, ...))
     elseif event == "CHAT_MSG_MONEY" then local text = ...; FG.collector:Money(text, select(11, ...))
     elseif event == "LOOT_READY" or event == "LOOT_OPENED" then CaptureLoot()
@@ -245,4 +312,5 @@ events:SetScript("OnUpdate", function(_, elapsed)
     if FG.character.current then FG.character.current.levelEnd = UnitLevel("player") end
     FG.XPBar:Refresh()
     FG.UI.Refresh()
+    if FG.Map then FG.Map.RefreshWorld() end
 end)

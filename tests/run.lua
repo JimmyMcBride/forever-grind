@@ -409,9 +409,9 @@ test("confirmed quest offer cannot award items or money twice across batches", f
 end)
 
 test("future saved-data version is rejected without downgrading it", function()
-    local FG = H.pure(); local db = { version = 2 }
+    local FG = H.pure(); local db = { version = 3 }
     local ok = pcall(FG.InitializeDB, db, {})
-    eq(ok, false); eq(db.version, 2)
+    eq(ok, false); eq(db.version, 3)
 end)
 
 test("unknown map coordinates stay unavailable and compact XP text adapts", function()
@@ -620,6 +620,8 @@ test("closed report retains frozen quotes after settings change and selection ch
     w.env.StaticPopupDialogs[w.popup.key].OnAccept(nil, w.popup.data)
     eq(w.FG.UI.selected, other); eq(w.FG.UI.reportVisible, true)
 end)
+
+assert(loadfile("tests/routes.lua"))()(H, test, eq, near)
 
 print(string.format("\n%d passed, %d failed", passed, failed))
 os.exit(failed == 0 and 0 or 1)

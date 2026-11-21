@@ -99,7 +99,7 @@ function UI.Tooltip(owner)
             end
         end
     elseif FG.character.mode == "armed" then
-        GameTooltip:AddLine("Waiting for first kill XP, or first confirmed corpse loot for zero-XP farming.", 1, 1, 1, true)
+        GameTooltip:AddLine("Waiting for a confirmed kill or first confirmed corpse loot.", 1, 1, 1, true)
     else GameTooltip:AddLine("Press Play to arm a fresh session.", 1, 1, 1) end
     GameTooltip:AddLine("Estimate uses cached prices; excludes expenses and failed-listing costs.", 0.7, 0.7, 0.7, true)
     GameTooltip:AddLine(FG.XPBar.status or "Waiting for Blizzard XP bar.", 0.7, 0.7, 0.7, true)

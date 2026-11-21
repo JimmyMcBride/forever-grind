@@ -64,7 +64,7 @@ function Parsing.KillXP(text, globals)
     for _, format in ipairs(formats) do
         local values = Parsing.Match(format, text)
         local amount = values and values[2]
-        if type(amount) == "number" and amount > 0 then return amount end
+        if type(amount) == "number" and amount > 0 then return amount, values[1] end
     end
 end
 

@@ -195,6 +195,7 @@ end
 
 function Report:Select(record)
     self.tab, self.item, self.scrolls = "overview", nil, {}
+    self.route:Select(record)
     self.scroll:SetVerticalScroll(0)
     self.itemScroll:SetVerticalScroll(0)
     self.ui.nameEdit:SetText(record.name or FG.LocationText(record.startLocation))
@@ -235,8 +236,11 @@ function Report:Refresh()
     self.scroll:SetPoint("BOTTOMRIGHT", self.tab == "loot" and -350 or -32, 128)
     self.content:SetWidth(self.tab == "loot" and 550 or 860)
     self.itemScroll:SetShown(self.tab == "loot")
+    self.route.frame:SetShown(self.tab == "route")
+    self.scroll:SetShown(self.tab ~= "route")
     local height
-    if self.tab == "overview" then height = self:Overview(record, t)
+    if self.tab == "route" then self.route:Refresh(record); height = 1
+    elseif self.tab == "overview" then height = self:Overview(record, t)
     elseif self.tab == "loot" then height = self:Loot(t)
     else height = self:SessionDetails(record) end
     self.content:SetHeight(math.max(1, height))
@@ -265,7 +269,7 @@ function Report.Create(ui)
         value:SetTextColor(unpack(metric[3])); value:SetWordWrap(false)
         self.metrics[metric[1]] = value
     end
-    for index, tab in ipairs({ { "overview", "Overview" }, { "loot", "Loot" }, { "details", "Session details" } }) do
+    for index, tab in ipairs({ { "overview", "Overview" }, { "loot", "Loot" }, { "details", "Session details" }, { "route", "Route" } }) do
         local key = tab[1]
         self.tabs[key] = Button(frame, tab[2], 20 + (index - 1) * 142, -218, 136, function() self:SetTab(key) end)
     end
@@ -304,5 +308,6 @@ function Report.Create(ui)
         if ui.selected and ui.selected.closed then StaticPopup_Show("FOREVER_GRIND_DELETE", nil, nil, ui.selected) end
     end)
     Text(frame, "Gold values are estimates. Saved and unsaved reports retain their closing prices.", 20, -554, 880, 10):SetTextColor(unpack(MUTED))
+    self.route = FG.Map.CreateReport(self)
     return self
 end

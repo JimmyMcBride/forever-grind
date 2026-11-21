@@ -19,7 +19,7 @@ end
 
 function H.pure()
     local FG = {}
-    for _, name in ipairs({ "Util", "Session", "Valuation", "Parsing", "Collector", "XPBar", "UI", "Report" }) do H.load(FG, name .. ".lua") end
+    for _, name in ipairs({ "Util", "Route", "Kills", "Session", "Valuation", "Parsing", "Collector", "XPBar", "UI", "Report", "Map" }) do H.load(FG, name .. ".lua") end
     return FG
 end
 
@@ -110,11 +110,17 @@ function H.native(options)
     function F:GetID() return 42 end
     function F:SetColorTexture(...) self.color = { ... } end
     function F:SetTextColor(...) self.color = { ... } end
+    function F:GetEffectiveScale() return self.effectiveScale or 1 end
+    function F:SetTexture(value) self.texture = value end
+    function F:SetVertexColor(...) self.color = { ... } end
+    function F:SetAlpha(value) self.alpha = value end
+    function F:SetStartPoint(...) self.startPoint = { ... } end
+    function F:SetEndPoint(...) self.endPoint = { ... } end
     function F:GetFont() return "font", 11, "OUTLINE" end
     function F:SetOwner(owner) self.owner = owner; self.lines = {} end
     function F:AddLine(text) self.lines = self.lines or {}; self.lines[#self.lines + 1] = text end
     function F:SetHyperlink(link) self.link = link end
-    for _, method in ipairs({ "SetJustifyH", "SetFont", "SetFrameStrata", "SetClampedToScreen", "SetMovable", "EnableMouse", "RegisterForDrag",
+    for _, method in ipairs({ "SetAllPoints", "SetClipsChildren", "EnableMouseWheel", "RegisterForClicks", "SetThickness", "SetTexCoord", "SetJustifyH", "SetFont", "SetFrameStrata", "SetClampedToScreen", "SetMovable", "EnableMouse", "RegisterForDrag",
         "SetBackdrop", "SetBackdropColor", "SetAutoFocus", "ClearFocus", "StartMoving", "StopMovingOrSizing", "SetScale", "SetWordWrap", "SetHighlightTexture", "SetJustifyV" }) do
         F[method] = function() end
     end
@@ -125,6 +131,7 @@ function H.native(options)
         return frame
     end
     function F:CreateFontString() return env.CreateFrame("FontString", nil, self) end
+    function F:CreateLine() return env.CreateFrame("Line", nil, self) end
     function F:CreateTexture() return env.CreateFrame("Texture", nil, self) end
     env.UIParent = env.CreateFrame("Frame")
     env.UIParent.width, env.UIParent.height = 1280, 800
@@ -137,10 +144,23 @@ function H.native(options)
     env.GetTime, env.time = function() return w.now end, function() return w.epoch end
     env.date = os.date
     env.UnitXP, env.UnitXPMax, env.UnitLevel = function() return w.xp end, function() return w.maximum end, function() return w.level end
-    env.UnitName, env.GetRealmName, env.UnitGUID = function() return "Tester" end, function() return "Realm" end, function() return "Player-1" end
+    w.units = { player = { guid = "Player-1", name = "Tester" } }
+    env.UnitName = function(unit) return w.units[unit] and w.units[unit].name end
+    env.GetRealmName = function() return "Realm" end
+    env.UnitGUID = function(unit) return w.units[unit] and w.units[unit].guid end
+    env.UnitNameFromGUID = function(guid) return w.names and w.names[guid] end
+    env.GetCursorPosition = function() return w.cursorX or 0, w.cursorY or 0 end
     env.GetZoneText, env.GetSubZoneText = function() return "Forest" end, function() return "Camp" end
-    env.C_Map = { GetBestMapForUnit = function() return 1 end,
-        GetPlayerMapPosition = function() if not w.noCoords then return { GetXY = function() return 0.25, 0.75 end } end end }
+    w.mapID, w.mapX, w.mapY = 1, 0.25, 0.75
+    env.C_Map = { GetBestMapForUnit = function() return w.mapID end,
+        GetMapWorldSize = function() return 1000, 1000 end,
+        GetMapInfo = function(id) return { name = "Map " .. id } end,
+        GetMapArtLayers = function() if not w.noArt then return { { layerWidth = 1002, layerHeight = 668, tileWidth = 256, tileHeight = 256 } } end end,
+        GetMapArtLayerTextures = function() return { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 } end,
+        CanSetUserWaypointOnMap = function() return not w.noWaypoint end,
+        SetUserWaypoint = function(point) w.waypoint = point end,
+        GetPlayerMapPosition = function() if not w.noCoords then return { GetXY = function() return w.mapX, w.mapY end } end end }
+    env.UiMapPoint = { CreateFromCoordinates = function(id, x, y) return { mapID = id, x = x, y = y } end }
     env.C_Timer = { After = function(delay, fn) w.timers[#w.timers + 1] = { due = w.now + delay, fn = fn } end }
     env.C_Item = {
         GetItemInfoInstant = function(link) return tonumber(link:match("item:(%d+)")) end,
@@ -202,7 +222,7 @@ function H.native(options)
             RegisterForDBUpdate = function(_, callback) w.priceUpdate = callback end,
         } } }
     end
-    for _, name in ipairs({ "Util", "Session", "Valuation", "Parsing", "Collector", "XPBar", "UI", "Report", "Core" }) do H.load(FG, name .. ".lua", env) end
+    for _, name in ipairs({ "Util", "Route", "Kills", "Session", "Valuation", "Parsing", "Collector", "XPBar", "UI", "Report", "Map", "Core" }) do H.load(FG, name .. ".lua", env) end
     function w:emit(event, ...)
         for _, frame in ipairs(self.frames) do
             if frame.events[event] and frame.scripts.OnEvent then frame.scripts.OnEvent(frame, event, ...) end
@@ -223,7 +243,8 @@ function H.native(options)
         end
     end
     function w:start()
-        self:chat("CHAT_MSG_COMBAT_XP_GAIN", "Boar dies, you gain 100 experience.", 1)
+        self.killSerial = (self.killSerial or 0) + 1
+        self:chat("CHAT_MSG_COMBAT_XP_GAIN", "Boar dies, you gain 100 experience.", self.killSerial)
         self.xp = self.xp + 100
         self:emit("PLAYER_XP_UPDATE", "player")
         self:advance(0.1)

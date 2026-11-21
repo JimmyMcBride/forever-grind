@@ -17,7 +17,7 @@ Target: Forever **1.60.1.70959**, interface **16001**. Every checkbox below is *
 
 - [ ] First solo and group credited kill starts armed session; include full first-kill XP, including rested/bonus XP.
 - [ ] Verify localized kill/loot/money messages in the installed locale.
-- [ ] First confirmed grey-mob corpse item or coin starts at receipt; empty corpse does not. Test manual and auto loot, delayed looting, multiple corpses, full bags, and failed acquisition.
+- [ ] First confirmed zero-XP kill starts at its notification. Without usable kill events, first confirmed grey-mob corpse item or coin starts at receipt; empty corpse does not. Test manual and auto loot, delayed looting, multiple corpses, full bags, and failed acquisition.
 - [ ] Running session counts exploration and quest XP separately from combat. Cross a level; check actual delta.
 - [ ] Gather herb/ore, loot container, receive stack quantities; source and total quantities match receipts.
 - [ ] Confirm fixed and selected quest rewards only; test single/multiple choices, currency choices, and quest automation. No duplicate pushed-item reward, coin, or XP accounting.
@@ -42,5 +42,20 @@ Target: Forever **1.60.1.70959**, interface **16001**. Every checkbox below is *
 - [ ] Switch Overview/Loot/Session details; scroll, select a loot row, type an edit, and wait for live updates. Scroll positions, selected item, and unfinished edits remain intact. Item tooltip and independently scrolling recommendation details work.
 - [ ] Rename/add long notes, promote an Unsaved report, delete with confirmation, and compare frozen pricing assumptions with original totals. Start/end locations and visited zones remain accessible, with zones sorted by active time.
 - [ ] Inspect Lua errors and blocked-action/taint warnings during combat and out of combat with normal UI addons.
+
+## Routes, mob history, and navigation
+
+- [ ] Update from 0.1.2 with saved, temporary, and unfinished sessions. Settings/prices/history survive schema 2 migration; old closed records show no recorded route, and resumed legacy records identify partial capture.
+- [ ] Solo/group/raid, player/pet, zero-XP, ranged, and simultaneous AoE kills produce correct counts. Unrelated nearby deaths, looting old corpses, area loot, repeated notifications, and multiple items from one corpse do not inflate counts.
+- [ ] Compare kill names/counts and assigned XP to known mobs/native XP. Unknown identities, restricted events, and ambiguous same-name NPCs show honest notices and unassigned XP without Lua errors. Delayed XP notifications retain correct total XP.
+- [ ] Confirm markers use the player's position at kill receipt, not enemy position or later looting position. UNIT_DIED alone does not start a session; source/event coverage remains explicit.
+- [ ] Move, stand still, turn corners, pause/resume, reload, change zones/floors, teleport/hearth, die/ghost, and pass through loading screens. Travel lines sample movement and break at gaps without bridging offline/paused travel. Stop/save captures endpoints.
+- [ ] Route tab retains summary values and editing controls. Verify map artwork alignment, clipping at viewport edges, arrows, S/E markers, long map names, small screens, and normal/high UI scale.
+- [ ] Cycle visited maps/floors, pan/zoom/Fit, and toggle Route/Kills/Ends. Clusters change with zoom, show counts/mob/time tooltips, and zoom on click; selected mobs highlight their locations. Sort every mob-table heading and scroll long lists.
+- [ ] Leave a live Route report open while moving/killing and typing edits. Map view, selected mob, table scroll, and edits survive refresh. Selecting another session resets the view. Hidden maps do not continue drawing.
+- [ ] Show a saved/current session on Blizzard's world map. Native pan/zoom/floors/quests and Questie pins work alongside it; switching sessions leaves one overlay; Hide removes it. Deletion/eviction removes an active session overlay.
+- [ ] Click a point and explicitly set a native waypoint on supported/unsupported maps. Test TomTom absent/present, existing unrelated waypoints, replacement of this addon's waypoint, arrow behavior, and nonpersistent waypoint options. No recording action creates a waypoint automatically.
+- [ ] Stop/save freezes route and mob history. Keep retains the same route; deletion and the 21st temporary entry remove route data with the session. Reload deduplicates already-recorded GUID/chat evidence.
+- [ ] Watch memory/frame counts and rendering during a long session with many kills. Inspect clipping, input handling, combat/PvP restrictions, Lua errors, and blocked-action/taint warnings with normal UI addons.
 
 No game-client results have been recorded for this preview.

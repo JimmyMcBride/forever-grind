@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0 — 2026-11-21
+
+- Record per-session travel routes and player-position kill markers, with explicit gaps for pauses, map changes, missing coordinates, and teleports.
+- Add confirmed zero-XP player/group/pet kills, persistent deduplication, per-NPC/name counts, kills/hour, confidently matched XP, and capture notices without restricted combat-log dependence.
+- Add a Route report tab with native map artwork, pan/zoom, map selection, clustered kills, mob filtering/sorting, and a selected-session world-map overlay.
+- Offer explicit native waypoints and optional nonpersistent TomTom navigation; preserve unrelated waypoints and map interactions.
+- Migrate saved data to schema 2 while keeping old histories and unfinished sessions. Old sessions have no invented route; resumed legacy runs mark partial capture.
+- Extend Lua 5.1/mock coverage for routes, kill ordering/reload, restrictions, map rendering/navigation, migration, and existing accounting invariants.
+
 ## 0.1.2 — 2026-11-20
 
 - Replace the narrow journal details panel with full-width Overview, Loot, and Session details reports, keeping XP/hour, estimated gold/hour, active time, and total XP visible.

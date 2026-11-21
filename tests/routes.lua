@@ -1,0 +1,360 @@
+return function(H, test, eq, near)
+local function guid(id, spawn) return "Creature-0-1-2-3-" .. id .. "-" .. (spawn or "a") end
+local function running()
+    local w = H.world(); w.context.location.width, w.context.location.height = 1000, 1000
+    return w, w:start()
+end
+local function open(w, r)
+    w.FG.UI.OpenJournal(); w.FG.UI.Select(r); w.FG.UI.report:SetTab("route")
+    return w.FG.UI.report.route
+end
+local function worldMap(w)
+    local native = w.env.CreateFrame("Frame", "WorldMapFrame", w.env.UIParent)
+    native.canvas = w.env.CreateFrame("Frame", nil, native); native.canvas:SetSize(800, 534)
+    function native:GetCanvas() return self.canvas end
+    function native:GetMapID() return self.mapID end
+    function native:SetMapID(id) self.mapID = id end
+    function native:GetCanvasScale() return 1 end
+    function native:PanAndZoomTo(x, y) self.pan = { x, y } end
+    return native
+end
+
+test("schema 2 migrates legacy histories without inventing route data", function()
+    local w = H.world(); local old = { id = "old", closed = true, xp = { combat = 10 } }
+    local db = { version = 1, saved = { old }, settings = { ahCut = 8 } }
+    local global, character = w.FG.InitializeDB(db, { version = 1, mode = "stopped" })
+    eq(global.version, 2); eq(character.version, 2); eq(global.saved[1], old); eq(old.route, nil)
+    eq(global.settings.ahCut, 8); eq(w.FG.Route.Stats(old).notices[1], "Route and mob history were not recorded.")
+end)
+test("legacy unfinished session becomes paused with partial route notice", function()
+    local w, r = running(); r.route = nil
+    local resumed = H.world(w.db, w.character)
+    eq(resumed.character.mode, "paused"); assert(r.route.notices.legacy)
+    eq(#r.route.points, 0); resumed.model:Play(resumed.now, resumed.epoch, resumed.context.location)
+    eq(#r.route.points, 1)
+end)
+test("movement samples every two seconds and only beyond five yards", function()
+    local w, r = running(); eq(#r.route.points, 1)
+    w.context.location.x = 0.26; w:advance(1); eq(#r.route.points, 1)
+    w:advance(1); eq(#r.route.points, 2); near(r.route.points[2].at, 2)
+    w.context.location.x = 0.263; w:advance(2); eq(#r.route.points, 2)
+    w.context.location.x = 0.266; w:advance(2); eq(#r.route.points, 3)
+    w:advance(20); eq(#r.route.points, 3)
+end)
+test("stop and pause capture movement endpoints before segment boundaries", function()
+    local w, r = running(); w.context.location.x = 0.251; w:advance(0.5)
+    w.model:Pause(w.now, w.epoch, w.context.location); eq(#r.route.points, 2)
+    local segment = r.route.points[2].segment
+    w.context.location.x = 0.4; w:advance(10); eq(#r.route.points, 2)
+    w.model:Play(w.now, w.epoch, w.context.location); eq(#r.route.points, 3)
+    assert(r.route.points[3].segment > segment)
+    w.context.location.x = 0.401; w:advance(0.5); w:stop(true)
+    eq(#r.route.points, 4); near(r.route.points[4].x, 0.401)
+end)
+test("missing coordinates map changes and teleport speed create route gaps", function()
+    local w, r = running()
+    w.context.location.x = 0.8; w:advance(0.5); eq(r.route.points[2].segment, 2)
+    w.context.location.x = nil; w:advance(1); assert(r.route.notices.coordinates)
+    w.context.location.x = 0.81; w:advance(1); eq(r.route.points[3].segment, 3)
+    w.context.location.mapID = 2; w:advance(0.5); eq(r.route.points[4].segment, 4)
+    eq(#w.FG.Route.Maps(r), 2)
+end)
+test("logout reload and resume never connect offline travel", function()
+    local w, r = running(); local count = #r.route.points
+    local restored = H.world(w.db, w.character)
+    restored.context.location.x = 0.8; restored:advance(100)
+    eq(#r.route.points, count)
+    restored.model:Play(restored.now, restored.epoch, restored.context.location)
+    eq(#r.route.points, count + 1); eq(r.route.points[count + 1].segment, 2)
+end)
+test("named XP capture snapshots location before queued processing", function()
+    local w = H.world(); w.collector:Kill("Boar dies, you gain 100 experience.", 71)
+    w.context.location.x = 0.8; w.collector:Flush()
+    local r = w.character.current; near(r.route.kills[1].location.x, 0.25)
+    eq(r.route.kills[1].name, "Boar"); eq(#r.route.kills, 1)
+end)
+test("zero XP credited kill starts armed run and records no invented XP", function()
+    local w = H.world(); w.collector:PartyKill(guid(42), "Wolf", 42); w.collector:Flush()
+    local r = w.character.current
+    eq(w.character.mode, "running"); eq(#r.route.kills, 1); eq(r.xp.combat, 0)
+    eq(r.route.mobs["npc:42"].name, "Wolf"); eq(r.route.mobs["npc:42"].count, 1)
+end)
+for _, order in ipairs({ "party-first", "chat-first" }) do
+    test("party and XP evidence correlate once in either order " .. order, function()
+        local w = H.world()
+        local function party() w.collector:PartyKill(guid(42), "Boar", 42); w.collector:Flush() end
+        local function chat()
+            w.collector:Kill("Boar dies, you gain 100 experience.", 72)
+            w.xp.xp = 200; w.collector:ObserveXP(w.FG.Copy(w.xp)); w.collector:Flush()
+        end
+        if order == "party-first" then party(); chat() else chat(); party() end
+        local r = w.character.current
+        eq(#r.route.kills, 1); eq(r.route.mobs["npc:42"].count, 1); eq(r.route.mobs["npc:42"].xp, 100)
+        eq(r.xp.combat, 100); eq(r.route.mobs["name:Boar"], nil)
+    end)
+end
+test("multiple simultaneous identical mobs preserve multiplicity without duplicate counts", function()
+    local w = H.world()
+    for i = 1, 5 do w.collector:PartyKill(guid(42, i), "Boar", 42) end
+    w.collector:Flush()
+    for i = 1, 5 do w.collector:Kill("Boar dies, you gain 100 experience.", 100 + i) end
+    w.xp.xp = 600; w.collector:ObserveXP(w.FG.Copy(w.xp)); w.collector:Flush()
+    local r = w.character.current
+    eq(#r.route.kills, 5); eq(r.route.mobs["npc:42"].xp, 500); eq(r.xp.combat, 500)
+end)
+test("duplicate GUIDs and repeated chat IDs cannot increase counts or XP", function()
+    local w = H.world(); w.collector:PartyKill(guid(42), "Boar", 42); w.collector:Flush()
+    w.collector:PartyKill(guid(42), "Boar", 42); w.collector:Flush()
+    w.collector:Kill("Boar dies, you gain 100 experience.", 73)
+    w.collector:Kill("Boar dies, you gain 100 experience.", 73)
+    w.xp.xp = 200; w.collector:ObserveXP(w.FG.Copy(w.xp)); w.collector:Flush()
+    eq(#w.character.current.route.kills, 1); eq(w.character.current.xp.combat, 100)
+end)
+test("deduplication survives reload while a session is unfinished", function()
+    local w = H.world(); w.collector:PartyKill(guid(42), "Boar", 42)
+    w.collector:Kill("Boar dies, you gain 100 experience.", 74); w.collector:Flush()
+    local r = w.character.current; local restored = H.world(w.db, w.character)
+    restored.model:Play(restored.now, restored.epoch, restored.context.location)
+    restored.collector:PartyKill(guid(42), "Boar", 42)
+    restored.collector:Kill("Boar dies, you gain 100 experience.", 74); restored.collector:Flush()
+    eq(#r.route.kills, 1)
+end)
+test("different NPC IDs sharing a name leave ambiguous XP unassigned", function()
+    local w = H.world()
+    w.collector:PartyKill(guid(42), "Boar", 42); w.collector:PartyKill(guid(43), "Boar", 43); w.collector:Flush()
+    w.collector:Kill("Boar dies, you gain 100 experience.", 75)
+    w.xp.xp = 200; w.collector:ObserveXP(w.FG.Copy(w.xp)); w.collector:Flush()
+    local r = w.character.current; local stats = w.FG.Route.Stats(r)
+    eq(stats.count, 2); eq(stats.unassigned, 100); assert(r.route.notices.ambiguous)
+end)
+test("per mob XP never exceeds confidently allocated existing combat XP", function()
+    local w, r = running()
+    eq(r.route.mobs["name:Boar"].xp, 100)
+    w.collector:Kill("Wolf dies, you gain 100 experience.", 76)
+    w.xp.xp = 500; w.collector:ObserveXP(w.FG.Copy(w.xp)); w.collector:Flush()
+    eq(r.xp.combat, 400); eq(r.route.mobs["name:Wolf"].xp, 100)
+    eq(w.FG.Route.Stats(r).unassigned, 200)
+end)
+test("unknown creature identity remains explicit and unlocated kills retain counts", function()
+    local w = H.world(); w.context.location.x = nil
+    w.collector:PartyKill(guid(42), nil, 42); w.collector:Flush()
+    local stats = w.FG.Route.Stats(w.character.current)
+    eq(stats.count, 1); eq(stats.missing, 1); eq(stats.rows[1].name, "Unknown creature #42")
+end)
+test("nearby deaths and loot alone do not increment mob counts", function()
+    local w = H.world(); w.collector:Death(guid(42)); w.collector:Flush()
+    eq(w.character.mode, "armed")
+    w.collector:Loot("You receive loot: item:1x3.", 77); w.collector:Flush()
+    eq(w.character.mode, "running"); eq(#w.character.current.route.kills, 0)
+end)
+test("death evidence supplies earlier player position without looting relocation", function()
+    local w = H.world(); w.collector:Death(guid(42)); w.context.location.x = 0.8
+    w.collector:PartyKill(guid(42), "Boar", 42); w.collector:Flush()
+    local r = w.character.current; near(r.route.kills[1].location.x, 0.25)
+    w.collector:Loot("You receive loot: item:1.", 78); w.collector:Flush()
+    near(r.route.kills[1].location.x, 0.25)
+end)
+test("paused observations and stale scheduled flush cannot enter the next run", function()
+    local w, r = running(); w.model:Pause(w.now, w.epoch, w.context.location)
+    w.collector:PartyKill(guid(42), "Wolf", 42); w.collector:Flush(); eq(#r.route.kills, 1)
+    w:stop(false); w.model:Play(w.now, w.epoch, w.context.location)
+    local oldCallback = w.timers[1]
+    w.collector:PartyKill(guid(43), "Wolf", 43)
+    oldCallback(); eq(w.character.current, nil)
+    w.collector:Flush(); eq(#w.character.current.route.kills, 1)
+end)
+test("native player party raid and pet credit excludes unrelated attackers", function()
+    local w = H.native(); local env = w.env
+    w.units.party1 = { guid = "Player-2" }; w.units.pet = { guid = "Pet-1" }
+    w.units.raidpet2 = { guid = "Pet-2" }; w:emit("GROUP_ROSTER_UPDATE")
+    w:emit("PARTY_KILL", "Player-outsider", guid(1)); w:advance(0.1); eq(w.FG.character.mode, "armed")
+    w.names = { [guid(42)] = "Wolf" }
+    w:emit("PARTY_KILL", "Player-2", guid(42)); w:advance(0.1)
+    local r = w.FG.character.current; eq(#r.route.kills, 1)
+    w:emit("PARTY_KILL", "Pet-1", guid(43)); w:emit("PARTY_KILL", "Pet-2", guid(44)); w:advance(0.1)
+    eq(#r.route.kills, 3); assert(not w.FG.collector.pending[1])
+    assert(not env.ForeverGrindDB.saved[1]); eq(env.ForeverGrindDB.version, 2)
+end)
+test("target and nameplate observations resolve names without a GUID name API", function()
+    local w = H.native(); w.units.target = { guid = guid(42), name = "Wolf" }
+    w:emit("PLAYER_TARGET_CHANGED"); w:emit("PARTY_KILL", "Player-1", guid(42)); w:advance(0.1)
+    eq(w.FG.character.current.route.mobs["npc:42"].name, "Wolf")
+    w.units.nameplate1 = { guid = guid(43), name = "Bear" }; w:emit("NAME_PLATE_UNIT_ADDED", "nameplate1")
+    w:emit("PARTY_KILL", "Player-1", guid(43)); w:advance(0.1)
+    eq(w.FG.character.current.route.mobs["npc:43"].name, "Bear")
+end)
+test("restricted GUID values are never compared indexed or parsed", function()
+    local w = H.native(); local secret = setmetatable({}, { __tostring = function() error("inspected secret") end })
+    w.env.issecretvalue = function(value) return rawequal(value, secret) end
+    w:emit("UNIT_DIED", secret); w:emit("PARTY_KILL", secret, secret); w:advance(0.1)
+    eq(w.FG.character.mode, "armed")
+    local r = w:start(); w:emit("PARTY_KILL", secret, secret); assert(r.route.notices.restricted)
+    for _, f in ipairs(w.frames) do assert(not f.events.COMBAT_LOG_EVENT_UNFILTERED) end
+end)
+test("native loading transitions split travel while retaining active session", function()
+    local w = H.native(); local r = w:start(); w:advance(1)
+    w:emit("PLAYER_LEAVING_WORLD"); w.mapX = 0.8; w:emit("PLAYER_ENTERING_WORLD"); w:advance(0.6)
+    eq(w.FG.character.mode, "running"); eq(r.route.points[#r.route.points].segment, 2)
+end)
+test("closed route freezes and promotion deletion eviction follow session ownership", function()
+    local w, r = running(); w:stop(false); local count, revision = #r.route.points, r.route.revision
+    w.FG.Route.Sample(r, w.context.location, true)
+    w.FG.Kills.Record(r, { source = "party", guid = guid(42) })
+    eq(#r.route.points, count); eq(r.route.revision, revision)
+    eq(w.model:Promote(r.id), r); eq(w.db.saved[1].route, r.route)
+    local native = H.native(); local nr = native:start(); native.FG.Action("stop")
+    native.FG.UI.OpenJournal(); native.FG.UI.Select(nr); native.FG.UI.delete.scripts.OnClick()
+    native.env.StaticPopupDialogs[native.popup.key].OnAccept(nil, native.popup.data)
+    eq(#native.FG.db.temporary, 0)
+end)
+test("24 pixel clustering changes with zoom and retains mob time breakdown", function()
+    local w, r = running()
+    w.context.location.x = 0.26; w:advance(1)
+    w.collector:PartyKill(guid(42), "Wolf", 42); w.collector:Flush()
+    local R = w.FG.Route; local view = { x = 0.5, y = 0.5, zoom = 1 }
+    local c = R.Clusters(r, 1, view, 500, 333)
+    eq(#c, 1); eq(#c[1].kills, 2); eq(c[1].mobs["npc:42"], 1); near(c[1].last, 1)
+    view.zoom = 8; eq(#R.Clusters(r, 1, view, 500, 333), 2)
+end)
+test("map fitting includes kill only sessions and clipping excludes offscreen lines", function()
+    local w = H.world(); w.collector:PartyKill(guid(42), "Wolf", 42); w.collector:Flush()
+    local r = w.character.current; r.route.points = {}
+    local view = w.FG.Route.Fit(r, 1); near(view.x, 0.25); near(view.y, 0.75)
+    eq(#w.FG.Route.Maps(r), 1)
+    eq(w.FG.Map.Clip(-20, -20, -1, -1, 500, 200), nil)
+    local x1, y1, x2, y2 = w.FG.Map.Clip(-10, 50, 510, 50, 500, 200)
+    near(x1, 0); near(x2, 500); near(y1, 50); near(y2, 50)
+end)
+test("route report shows totals native art mob rows and amount sorting", function()
+    local w = H.native(); local r = w:start(); local tab = open(w, r)
+    eq(tab.stats.count, 1); eq(tab.rows[1].name:GetText(), "Boar")
+    assert(tab.canvas.tiles[1].texture); assert(tab.canvas.usedPins > 0)
+    eq(tab.canvas.tiles[1].parent, tab.canvas.surface); eq(tab.canvas.surface.parent, tab.canvas.frame)
+    tab.rows[1].scripts.OnClick(tab.rows[1]); eq(tab.canvas.mob, "name:Boar")
+    tab.all.scripts.OnClick(); eq(tab.canvas.mob, nil)
+    eq(tab.unassigned:GetText(), "Unassigned combat XP: 0")
+end)
+test("route refresh preserves map mob scroll view and typed report edits", function()
+    local w = H.native(); local r = w:start(); local tab = open(w, r)
+    tab.canvas.view = { x = 0.31, y = 0.72, zoom = 3 }
+    tab.rows[1].scripts.OnClick(tab.rows[1]); w.FG.UI.nameEdit:SetText("Unfinished name")
+    w.FG.UI.notesEdit:SetText("Unfinished notes")
+    w:advance(0.6); local frames = #w.frames; w:advance(2)
+    eq(tab.canvas.view.zoom, 3); eq(tab.canvas.mob, "name:Boar")
+    eq(w.FG.UI.nameEdit:GetText(), "Unfinished name"); eq(#w.frames, frames)
+    eq(tab.canvas.mapID, 1)
+end)
+test("map floor cycle and fit controls preserve data and reset another session view", function()
+    local w = H.native(); local r = w:start(); w.mapID = 2; w.mapX = 0.4; w:advance(0.6)
+    local tab = open(w, r); eq(tab.canvas.mapID, 1)
+    tab.next.scripts.OnClick(); eq(tab.canvas.mapID, 2)
+    tab.canvas.view.zoom = 12; tab.fit.scripts.OnClick(); assert(tab.canvas.view.zoom < 12)
+    w.FG.Action("stop"); w.FG.Action("play"); local nextRun = w:start()
+    w.FG.UI.Select(nextRun); eq(tab.canvas.mob, nil); eq(w.FG.UI.report.tab, "overview")
+    eq(tab.canvas.mapID, 2)
+end)
+test("empty legacy and missing art route views remain readable without map data", function()
+    local w = H.native(); local r = w:start(); r.route = nil
+    local tab = open(w, r)
+    eq(tab.notice:GetText(), "Route and mob history were not recorded."); eq(tab.world.enabled, false)
+    w.FG.Route.Ensure(r, true); w.FG.Route.Sample(r, w.FG.Context().location, true)
+    w.noArt = true; tab:Select(r); tab.canvas.invalid = true; tab.canvas:Draw()
+    eq(tab.canvas.artNotice:GetText(), "Map artwork unavailable")
+end)
+test("native waypoint click respects eligibility and does not change waypoint on failure", function()
+    local w = H.native(); local p = { mapID = 1, x = 0.3, y = 0.4 }
+    w.noWaypoint = true; local ok = w.FG.Map.Navigate(p, false); eq(ok, false); eq(w.waypoint, nil)
+    w.noWaypoint = false; eq(w.FG.Map.Navigate(p, false), true); near(w.waypoint.x, 0.3)
+    local old = w.waypoint; eq(w.FG.Map.Navigate({}, false), false); eq(w.waypoint, old)
+end)
+test("optional TomTom uses nonpersistent owned waypoints and leaves others intact", function()
+    local w = H.native(); local p = { mapID = 1, x = 0.3, y = 0.4 }
+    eq(w.FG.Map.Navigate(p, true), false)
+    local removed, created, arrow = {}, {}, nil
+    w.env.TomTom = {
+        AddWaypoint = function(_, id, x, y, options)
+            local uid = { id = id, x = x, y = y, options = options }; created[#created + 1] = uid; return uid
+        end,
+        RemoveWaypoint = function(_, uid) removed[#removed + 1] = uid end,
+        SetCrazyArrow = function(_, uid) arrow = uid end,
+    }
+    eq(w.FG.Map.Navigate(p, true), true); eq(arrow, created[1]); eq(created[1].options.persistent, false)
+    eq(created[1].options.from, "ForeverGrind"); eq(#removed, 0)
+    w.FG.Map.Navigate(p, true); eq(#removed, 1); eq(removed[1], created[1])
+    w.env.TomTom.AddWaypoint = function() error("unsupported map") end
+    eq(w.FG.Map.Navigate(p, true), false)
+end)
+test("world overlay follows native map with one owned view and cleans up deleted session", function()
+    local w = H.native(); local r = w:start(); local native = worldMap(w)
+    local oldClick = function() end; native:SetScript("OnMouseUp", oldClick)
+    eq(w.FG.Map.ShowWorld(r, 1, "name:Boar"), true)
+    local world = w.FG.Map.world; eq(world.record, r); eq(world.mob, "name:Boar")
+    world.frame.effectiveScale = 2; world.invalid = true; world:Draw()
+    near(world.pins[1].width, 4)
+    native:SetMapID(2); w.FG.Map.RefreshWorld(); eq(world.mapID, 2)
+    native:SetMapID(1); w.FG.Map.RefreshWorld(); eq(world.mapID, 1)
+    eq(native.scripts.OnMouseUp, oldClick)
+    w.FG.Action("stop"); w.FG.db.temporary = {}; w.FG.Map.RefreshWorld()
+    eq(world.record, nil); eq(world.frame:IsShown(), false)
+end)
+test("large route drawing reuses frames and simplifies according to zoom", function()
+    local w = H.native(); local r = w:start(); local tab = open(w, r)
+    r.route.points = {}
+    for i = 1, 10000 do r.route.points[i] = { mapID = 1, x = 0.2 + i / 100000, y = 0.5, segment = 1, at = i } end
+    r.route.revision = r.route.revision + 1
+    tab.canvas:Fit(); local lines, count = tab.canvas.usedLines, #w.frames
+    assert(lines < 500, "Expected display simplification")
+    for i = 1, 10 do tab.canvas.invalid = true; tab.canvas:Draw() end
+    eq(#w.frames, count)
+end)
+test("late kill notification reclassifies counted XP without increasing the total", function()
+    local w = H.native(); w:emit("PARTY_KILL", "Player-1", guid(42)); w:advance(0.1)
+    local r = w.FG.character.current
+    w.xp = 200; w:emit("PLAYER_XP_UPDATE", "player"); w:advance(0.1)
+    eq(r.xp.other, 100)
+    w.names = { [guid(42)] = "Boar" }
+    w:chat("CHAT_MSG_COMBAT_XP_GAIN", "Boar dies, you gain 100 experience.", 600); w:advance(0.1)
+    eq(r.xp.other, 0); eq(r.xp.combat, 100); eq(#r.route.kills, 1)
+    eq(w.FG.Totals(r).xp, 100); eq(w.FG.Route.Stats(r).unassigned, 100)
+end)
+for _, order in ipairs({ "guid-first", "chat-first" }) do
+    test("unresolved GUID/name duplicates remain conservative " .. order, function()
+        local w = H.world()
+        local function party() w.collector:PartyKill(guid(42), nil, 42); w.collector:Flush() end
+        local function chat() w.collector:Kill("Boar dies, you gain 100 experience.", 601); w.collector:Flush() end
+        if order == "guid-first" then party(); chat() else chat(); party() end
+        local r = w.character.current
+        eq(#r.route.kills, 1); assert(r.route.notices.identity)
+        party(); eq(#r.route.kills, 1)
+    end)
+end
+test("kill matching is bounded by precise seconds and pause generations", function()
+    local w = H.world(); w.collector:PartyKill(guid(42), "Boar", 42); w.collector:Flush()
+    w:advance(2.01); w.collector:Kill("Boar dies, you gain 100 experience.", 602); w.collector:Flush()
+    eq(#w.character.current.route.kills, 2)
+    local w2 = H.world(); w2.collector:PartyKill(guid(42), "Boar", 42); w2.collector:Flush()
+    w2.model:Pause(w2.now, w2.epoch, w2.context.location); w2.collector:Boundary()
+    w2.model:Play(w2.now, w2.epoch, w2.context.location)
+    w2.collector:Kill("Boar dies, you gain 100 experience.", 603); w2.collector:Flush()
+    eq(#w2.character.current.route.kills, 2)
+end)
+test("native kill pins offer navigation only after an explicit click", function()
+    local w = H.native(); local r = w:start(); local tab = open(w, r)
+    eq(w.waypoint, nil)
+    local pin = tab.canvas.pins[1]
+    pin.scripts.OnEnter(pin); assert(table.concat(w.env.GameTooltip.lines, " "):find("Your position", 1, true))
+    pin.scripts.OnClick(pin, "RightButton")
+    eq(w.FG.Map.menu:IsShown(), true); eq(w.waypoint, nil)
+    w.FG.Map.menu.native.scripts.OnClick(); near(w.waypoint.x, 0.25)
+end)
+test("hidden routes do not draw and waypoint or world-map failures remain contained", function()
+    local w = H.native(); local r = w:start(); local tab = open(w, r)
+    tab.frame:Hide(); local frames = #w.frames
+    tab.canvas.invalid = true; tab.canvas:Draw(); eq(#w.frames, frames); eq(tab.canvas.invalid, true)
+    w.env.InCombatLockdown = function() return true end
+    eq(w.FG.Map.ShowWorld(r, 1), false)
+    local native = worldMap(w); native.SetMapID = function() error("not available") end
+    eq(w.FG.Map.ShowWorld(r, 1), false)
+end)
+
+end
